@@ -1,0 +1,96 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --zapia-bg: #f6f6f4;
+  --zapia-surface: #ffffff;
+  --zapia-surface-alt: #ededeb;
+  --zapia-border: #e2e2de;
+  --zapia-text: #111113;
+  --zapia-muted: #52525b;
+  --zapia-accent: #dc2626;
+  --zapia-accent-hover: #b91c1c;
+  --zapia-accent-soft: rgba(220, 38, 38, 0.1);
+  --zapia-accent-fg: #ffffff;
+  --zapia-lime: #c4f16e;
+  --zapia-cream: #f3e9d2;
+  --zapia-ochre: #e5c267;
+  --zapia-coral: #ee966c;
+  --zapia-pink: #f29bd4;
+}
+
+.dark {
+  --zapia-bg: #050506;
+  --zapia-surface: #111113;
+  --zapia-surface-alt: #1b1b1f;
+  --zapia-border: #27272c;
+  --zapia-text: #f7f7f8;
+  --zapia-muted: #9e9ea7;
+  --zapia-accent: #dc2626;
+  --zapia-accent-hover: #ef4444;
+  --zapia-accent-soft: rgba(220, 38, 38, 0.16);
+  --zapia-accent-fg: #ffffff;
+}
+
+[data-theme="cobalt-pro"].dark {
+  --zapia-bg: #070b14;
+  --zapia-surface: #0f1626;
+  --zapia-surface-alt: #172138;
+  --zapia-border: #233152;
+  --zapia-accent: #2563eb;
+  --zapia-accent-hover: #3b82f6;
+  --zapia-accent-soft: rgba(37, 99, 235, 0.18);
+}
+
+[data-theme="royal-gold"].dark {
+  --zapia-bg: #090807;
+  --zapia-surface: #14120f;
+  --zapia-surface-alt: #1e1b16;
+  --zapia-border: #302a21;
+  --zapia-accent: #d97706;
+  --zapia-accent-hover: #f59e0b;
+  --zapia-accent-soft: rgba(217, 119, 6, 0.18);
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  background-color: var(--zapia-bg);
+  color: var(--zapia-text);
+  overflow-x: hidden;
+}
+
+h1, h2, h3, .font-display {
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+.font-editorial {
+  font-family: 'Fraunces', Georgia, serif;
+}
+
+.font-mono-tabular {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private user profile and assistant configuration owned by a single authenticated user.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "email": { "type": "string", "minLength": 3, "maxLength": 200 },
+        "preferredPersona": { "type": "string", "enum": ["amigo", "colega", "executivo", "criativo"], "maxLength": 32 },
+        "preferredVoiceGender": { "type": "string", "enum": ["masculina", "feminina", "alternada"], "maxLength": 32 },
+        "themeId": { "type": "string", "enum": ["obsidian-crimson", "platinum-light", "cobalt-pro", "royal-gold"], "maxLength": 32 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "email", "preferredPersona", "preferredVoiceGender", "themeId", "createdAt", "updatedAt"]
+    },
+    "LearnedPreference": {
+      "title": "LearnedPreference",
+      "description": "Proactive user preference learned by ZAPIA over time.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "category": { "type": "string", "enum": ["rotina", "voz", "estilo", "atalho", "contato"], "maxLength": 32 },
+        "key": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "value": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "confidence": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "category", "key", "value", "confidence", "createdAt", "updatedAt"]
+    },
+    "VaultDocument": {
+      "title": "VaultDocument",
+      "description": "End-to-end encrypted document or media metadata synced across devices.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 180 },
+        "mimeType": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "sizeBytes": { "type": "number" },
+        "sha256": { "type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[a-f0-9]{64}$" },
+        "encryptedPayload": { "type": "string", "minLength": 1, "maxLength": 250000 },
+        "iv": { "type": "string", "minLength": 8, "maxLength": 64 },
+        "scanStatus": { "type": "string", "enum": ["limpo", "alerta", "quarentena"], "maxLength": 24 },
+        "driveFileId": { "type": "string", "maxLength": 256 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "title", "mimeType", "sizeBytes", "sha256", "encryptedPayload", "iv", "scanStatus", "createdAt", "updatedAt"]
+    },
+    "AssistantMessage": {
+      "title": "AssistantMessage",
+      "description": "Synced conversation turn with persona and voice metadata.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "role": { "type": "string", "enum": ["user", "assistant"], "maxLength": 16 },
+        "content": { "type": "string", "minLength": 1, "maxLength": 12000 },
+        "persona": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "voiceName": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "role", "content", "persona", "voiceName", "createdAt"]
+    },
+    "ScheduleReminder": {
+      "title": "ScheduleReminder",
+      "description": "Synced schedule task and push notification reminder.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "dueAtIso": { "type": "string", "minLength": 10, "maxLength": 64 },
+        "status": { "type": "string", "enum": ["pendente", "concluido"], "maxLength": 24 },
+        "calendarEventId": { "type": "string", "maxLength": 256 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "title", "dueAtIso", "status", "createdAt", "updatedAt"]
+    },
+    "SecurityAuditLog": {
+      "title": "SecurityAuditLog",
+      "description": "Immutable security and integrity audit event.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "action": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "target": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "verdict": { "type": "string", "enum": ["seguro", "bloqueado", "alerta"], "maxLength": 24 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "action", "target", "verdict", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private profile document per authenticated user."
+    },
+    "/users/{userId}/preferences/{prefId}": {
+      "schema": { "$ref": "#/entities/LearnedPreference" },
+      "description": "User preferences learned by ZAPIA."
+    },
+    "/users/{userId}/vaultItems/{itemId}": {
+      "schema": { "$ref": "#/entities/VaultDocument" },
+      "description": "Client-side AES-GCM encrypted documents and file metadata."
+    },
+    "/users/{userId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/AssistantMessage" },
+      "description": "Conversation turns synced across devices."
+    },
+    "/users/{userId}/reminders/{reminderId}": {
+      "schema": { "$ref": "#/entities/ScheduleReminder" },
+      "description": "Synced user reminders and calendar links."
+    },
+    "/users/{userId}/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/SecurityAuditLog" },
+      "description": "Immutable security audit trail per user."
+    }
+  }
+}

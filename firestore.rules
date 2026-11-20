@@ -1,0 +1,253 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function hasActiveProfile(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId))
+        && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+    }
+
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'displayName', 'email', 'preferredPersona', 'preferredVoiceGender', 'themeId', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'email', 'preferredPersona', 'preferredVoiceGender', 'themeId', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.uid == request.auth.uid
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 200
+        && data.preferredPersona is string && data.preferredPersona.size() <= 32
+        && data.preferredPersona in ['amigo', 'colega', 'executivo', 'criativo']
+        && data.preferredVoiceGender is string && data.preferredVoiceGender.size() <= 32
+        && data.preferredVoiceGender in ['masculina', 'feminina', 'alternada']
+        && data.themeId is string && data.themeId.size() <= 32
+        && data.themeId in ['obsidian-crimson', 'platinum-light', 'cobalt-pro', 'royal-gold']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPreference(data, prefId) {
+      return data.keys().hasAll(['id', 'ownerId', 'category', 'key', 'value', 'confidence', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'category', 'key', 'value', 'confidence', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == prefId
+        && isValidId(data.ownerId)
+        && data.ownerId == request.auth.uid
+        && data.category is string && data.category.size() <= 32
+        && data.category in ['rotina', 'voz', 'estilo', 'atalho', 'contato']
+        && data.key is string && data.key.size() >= 1 && data.key.size() <= 100
+        && data.value is string && data.value.size() >= 1 && data.value.size() <= 500
+        && (data.confidence is int || data.confidence is float)
+        && data.confidence >= 0 && data.confidence <= 100
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidVaultDocument(data, itemId) {
+      return data.keys().hasAll(['id', 'ownerId', 'title', 'mimeType', 'sizeBytes', 'sha256', 'encryptedPayload', 'iv', 'scanStatus', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'title', 'mimeType', 'sizeBytes', 'sha256', 'encryptedPayload', 'iv', 'scanStatus', 'driveFileId', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == itemId
+        && isValidId(data.ownerId)
+        && data.ownerId == request.auth.uid
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 180
+        && data.mimeType is string && data.mimeType.size() >= 1 && data.mimeType.size() <= 120
+        && (data.sizeBytes is int || data.sizeBytes is float)
+        && data.sizeBytes >= 0 && data.sizeBytes <= 52428800
+        && data.sha256 is string && data.sha256.size() == 64 && data.sha256.matches('^[a-f0-9]{64}$')
+        && data.encryptedPayload is string && data.encryptedPayload.size() >= 1 && data.encryptedPayload.size() <= 250000
+        && data.iv is string && data.iv.size() >= 8 && data.iv.size() <= 64
+        && data.scanStatus is string && data.scanStatus.size() <= 24
+        && data.scanStatus in ['limpo', 'alerta', 'quarentena']
+        && (!data.keys().hasAny(['driveFileId']) || (data.driveFileId is string && data.driveFileId.size() <= 256))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMessage(data, messageId) {
+      return data.keys().hasAll(['id', 'ownerId', 'role', 'content', 'persona', 'voiceName', 'createdAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'role', 'content', 'persona', 'voiceName', 'createdAt'])
+        && isValidId(data.id)
+        && data.id == messageId
+        && isValidId(data.ownerId)
+        && data.ownerId == request.auth.uid
+        && data.role is string && data.role.size() <= 16
+        && data.role in ['user', 'assistant']
+        && data.content is string && data.content.size() >= 1 && data.content.size() <= 12000
+        && data.persona is string && data.persona.size() >= 1 && data.persona.size() <= 32
+        && data.voiceName is string && data.voiceName.size() >= 1 && data.voiceName.size() <= 32
+        && data.createdAt is timestamp;
+    }
+
+    function isValidReminder(data, reminderId) {
+      return data.keys().hasAll(['id', 'ownerId', 'title', 'dueAtIso', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'title', 'dueAtIso', 'status', 'calendarEventId', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == reminderId
+        && isValidId(data.ownerId)
+        && data.ownerId == request.auth.uid
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+        && data.dueAtIso is string && data.dueAtIso.size() >= 10 && data.dueAtIso.size() <= 64
+        && data.status is string && data.status.size() <= 24
+        && data.status in ['pendente', 'concluido']
+        && (!data.keys().hasAny(['calendarEventId']) || (data.calendarEventId is string && data.calendarEventId.size() <= 256))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAuditLog(data, logId) {
+      return data.keys().hasAll(['id', 'ownerId', 'action', 'target', 'verdict', 'createdAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'action', 'target', 'verdict', 'createdAt'])
+        && isValidId(data.id)
+        && data.id == logId
+        && isValidId(data.ownerId)
+        && data.ownerId == request.auth.uid
+        && data.action is string && data.action.size() >= 1 && data.action.size() <= 120
+        && data.target is string && data.target.size() >= 1 && data.target.size() <= 200
+        && data.verdict is string && data.verdict.size() <= 24
+        && data.verdict in ['seguro', 'bloqueado', 'alerta']
+        && data.createdAt is timestamp;
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId) && isVerifiedUser();
+      allow list: if false;
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && isVerifiedUser()
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isOwner(userId)
+        && isVerifiedUser()
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'preferredPersona', 'preferredVoiceGender', 'themeId', 'updatedAt']);
+      allow delete: if isValidId(userId) && isOwner(userId) && isVerifiedUser();
+
+      match /preferences/{prefId} {
+        allow get: if isValidId(userId) && isValidId(prefId) && isOwner(userId) && isVerifiedUser() && hasActiveProfile(userId);
+        allow list: if isOwner(userId) && isVerifiedUser() && resource.data.ownerId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(prefId)
+          && isOwner(userId) && isVerifiedUser()
+          && isValidPreference(incoming(), prefId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && hasActiveProfile(userId);
+        allow update: if isValidId(userId) && isValidId(prefId)
+          && isOwner(userId) && isVerifiedUser()
+          && isValidPreference(incoming(), prefId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['value', 'confidence', 'category', 'updatedAt'])
+          && hasActiveProfile(userId);
+        allow delete: if isValidId(userId) && isValidId(prefId) && isOwner(userId) && isVerifiedUser() && hasActiveProfile(userId);
+      }
+
+      match /vaultItems/{itemId} {
+        allow get: if isValidId(userId) && isValidId(itemId) && isOwner(userId) && isVerifiedUser() && hasActiveProfile(userId);
+        allow list: if isOwner(userId) && isVerifiedUser() && resource.data.ownerId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(itemId)
+          && isOwner(userId) && isVerifiedUser()
+          && isValidVaultDocument(incoming(), itemId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && hasActiveProfile(userId);
+        allow update: if isValidId(userId) && isValidId(itemId)
+          && isOwner(userId) && isVerifiedUser()
+          && isValidVaultDocument(incoming(), itemId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().sha256 == existing().sha256
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['title', 'driveFileId', 'updatedAt'])
+            || incoming().diff(existing()).affectedKeys().hasOnly(['scanStatus', 'updatedAt'])
+          )
+          && hasActiveProfile(userId);
+        allow delete: if isValidId(userId) && isValidId(itemId) && isOwner(userId) && isVerifiedUser() && hasActiveProfile(userId);
+      }
+
+      match /messages/{messageId} {
+        allow get: if isValidId(userId) && isValidId(messageId) && isOwner(userId) && isVerifiedUser() && hasActiveProfile(userId);
+        allow list: if isOwner(userId) && isVerifiedUser() && resource.data.ownerId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(messageId)
+          && isOwner(userId) && isVerifiedUser()
+          && isValidMessage(incoming(), messageId)
+          && incoming().createdAt == request.time
+          && hasActiveProfile(userId);
+        allow update: if false;
+        allow delete: if isValidId(userId) && isValidId(messageId) && isOwner(userId) && isVerifiedUser() && hasActiveProfile(userId);
+      }
+
+      match /reminders/{reminderId} {
+        allow get: if isValidId(userId) && isValidId(reminderId) && isOwner(userId) && isVerifiedUser() && hasActiveProfile(userId);
+        allow list: if isOwner(userId) && isVerifiedUser() && resource.data.ownerId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(reminderId)
+          && isOwner(userId) && isVerifiedUser()
+          && isValidReminder(incoming(), reminderId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && hasActiveProfile(userId);
+        allow update: if isValidId(userId) && isValidId(reminderId)
+          && isOwner(userId) && isVerifiedUser()
+          && isValidReminder(incoming(), reminderId)
+          && existing().status != 'concluido'
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+            || incoming().diff(existing()).affectedKeys().hasOnly(['title', 'dueAtIso', 'calendarEventId', 'updatedAt'])
+          )
+          && hasActiveProfile(userId);
+        allow delete: if isValidId(userId) && isValidId(reminderId) && isOwner(userId) && isVerifiedUser() && hasActiveProfile(userId);
+      }
+
+      match /auditLogs/{logId} {
+        allow get: if isValidId(userId) && isValidId(logId) && isOwner(userId) && isVerifiedUser() && hasActiveProfile(userId);
+        allow list: if isOwner(userId) && isVerifiedUser() && resource.data.ownerId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(logId)
+          && isOwner(userId) && isVerifiedUser()
+          && isValidAuditLog(incoming(), logId)
+          && incoming().createdAt == request.time
+          && hasActiveProfile(userId);
+        allow update: if false;
+        allow delete: if isValidId(userId) && isValidId(logId) && isOwner(userId) && isVerifiedUser() && hasActiveProfile(userId);
+      }
+    }
+  }
+}

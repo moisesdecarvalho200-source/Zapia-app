@@ -1,0 +1,6 @@
+{
+  "name": "ZAPIA Assistente Inteligente",
+  "description": "Assistente inteligente multiplataforma com vozes realistas, cofre criptografado offline, galeria e integração com Google Workspace por Moisés de Carvalho.",
+  "requestFramePermissions": ["microphone", "camera", "notifications"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
