@@ -21,21 +21,27 @@ import {
   Cpu,
   Heart,
   EyeOff,
+  CloudUpload,
+  Activity,
 } from 'lucide-react';
 import {
   PERSONA_PROFILES,
   ProactiveRadarCard,
   SensitiveContentAnalysis,
   analyzeSensitiveContent,
+  analyzeSentiment,
   getPortugueseGreeting,
   summarizeSelfKnowledgeInsights,
 } from '../utils/zapiaLogic';
 import {
+  LocalAuditLog,
   LocalConnector,
   LocalDailyCheckin,
   LocalMessage,
   LocalPreference,
+  LocalReminder,
   LocalThread,
+  LocalVaultItem,
   ZapiaSettingsState,
 } from '../utils/offlineDb';
 import { zapiaSpeech } from '../utils/speechPlayer';
@@ -66,9 +72,15 @@ interface AssistantViewProps {
   activeCustomModelName?: string | null;
   connectors?: LocalConnector[];
   dailyCheckins?: LocalDailyCheckin[];
+  vaultItems?: LocalVaultItem[];
+  reminders?: LocalReminder[];
+  auditLogs?: LocalAuditLog[];
+  hasGoogleToken?: boolean;
+  onRequestGoogleLogin?: () => Promise<void>;
+  onUploadVaultItemToDrive?: (item: LocalVaultItem) => Promise<void>;
   onSelectAiConnector?: (connectorId: string | null) => Promise<void>;
   onOpenConnectors?: () => void;
-  onSaveSensitiveToVault?: (title: string, content: string) => Promise<void>;
+  onSaveSensitiveToVault?: (title: string, content: string) => Promise<LocalVaultItem | void>;
   onSaveDailyCheckin?: (checkin: Omit<LocalDailyCheckin, 'id' | 'dateIso' | 'createdAtIso'>) => Promise<void>;
 }
 
@@ -91,6 +103,12 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
   activeCustomModelName,
   connectors = [],
   dailyCheckins = [],
+  vaultItems = [],
+  reminders = [],
+  auditLogs = [],
+  hasGoogleToken = false,
+  onRequestGoogleLogin,
+  onUploadVaultItemToDrive,
   onSelectAiConnector,
   onOpenConnectors,
   onSaveSensitiveToVault,
@@ -109,7 +127,10 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
     analysis: SensitiveContentAnalysis;
   } | null>(null);
   const [isSavingVaultSecret, setIsSavingVaultSecret] = useState(false);
-  const [vaultSavedFeedback, setVaultSavedFeedback] = useState<string | null>(null);
+  const [vaultSavedFeedback, setVaultSavedFeedback] = useState<{
+    message: string;
+    savedItem: LocalVaultItem | null;
+  } | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -123,6 +144,12 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
   );
   const activeAiConnector = aiConnectors.find((c) => c.isActiveAiModel) || null;
   const selfKnowledgeSummary = summarizeSelfKnowledgeInsights(dailyCheckins);
+  const recentUserText = messages
+    .filter((m) => m.role === 'user')
+    .slice(-5)
+    .map((m) => m.content)
+    .join(' ');
+  const threadSentiment = analyzeSentiment(recentUserText);
 
   const visibleCards = radarCards.filter((c) => !dismissedCardIds.includes(c.id));
   const cardsToShow = visibleCards.length > 0 ? visibleCards : radarCards;
@@ -186,13 +213,14 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
     if (!pendingSensitive || !onSaveSensitiveToVault || isSavingVaultSecret) return;
     setIsSavingVaultSecret(true);
     try {
-      await onSaveSensitiveToVault(
+      const saved = await onSaveSensitiveToVault(
         pendingSensitive.analysis.suggestedTitle,
         pendingSensitive.originalText
       );
-      setVaultSavedFeedback(
-        `Conteúdo protegido e salvo no Cofre E2EE como "${pendingSensitive.analysis.suggestedTitle}". Nenhum dado sensível foi enviado à API.`
-      );
+      setVaultSavedFeedback({
+        message: `Conteúdo protegido e salvo no Cofre E2EE como "${pendingSensitive.analysis.suggestedTitle}". Nenhum dado sensível foi enviado à API.`,
+        savedItem: saved || null,
+      });
       setPendingSensitive(null);
       setInput('');
     } finally {
@@ -431,12 +459,31 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
           {/* Compact Thread Context Bar */}
           <div className="flex flex-wrap items-center justify-between gap-2 pb-3 mb-3 border-b border-[var(--zapia-border)]">
             <div className="min-w-0">
-              <h2 className="text-sm sm:text-base font-semibold truncate text-[var(--zapia-text)]">
-                {activeThread?.title || 'Conversa ZAPIA'}
-              </h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-sm sm:text-base font-semibold truncate text-[var(--zapia-text)]">
+                  {activeThread?.title || 'Conversa ZAPIA MS'}
+                </h2>
+                {recentUserText && (
+                  <span
+                    data-testid="chat-sentiment-badge"
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                      threadSentiment.polarity === 'positivo'
+                        ? 'bg-emerald-500/15 text-emerald-400'
+                        : threadSentiment.polarity === 'negativo'
+                          ? 'bg-rose-500/15 text-rose-400'
+                          : threadSentiment.polarity === 'misto'
+                            ? 'bg-amber-500/15 text-amber-400'
+                            : 'bg-[var(--zapia-surface)] text-[var(--zapia-muted)] border border-[var(--zapia-border)]'
+                    }`}
+                  >
+                    <Activity className="w-2.5 h-2.5" />
+                    <span>Sentimento: {threadSentiment.label}</span>
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-[var(--zapia-muted)] truncate">
                 {PERSONA_PROFILES[settings.persona].label} · Voz {settings.voiceGender} ·{' '}
-                {activeCustomModelName ? `API: ${activeCustomModelName}` : isOnline ? 'Gemini ZAPIA' : 'Offline Seguro'}
+                {activeCustomModelName ? `API: ${activeCustomModelName}` : isOnline ? 'Gemini ZAPIA MS' : 'Offline Seguro'}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -487,7 +534,7 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
                   className={`flex flex-col gap-1.5 ${isUser ? 'items-end' : 'items-start'}`}
                 >
                   <div className="flex items-center gap-2 text-xs text-[var(--zapia-muted)] px-1">
-                    <span>{isUser ? settings.userName : 'ZAPIA'}</span>
+                    <span>{isUser ? settings.userName : 'ZAPIA MS'}</span>
                     <span aria-hidden="true">·</span>
                     <span>
                       {isUser
@@ -562,32 +609,72 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
           <div
             role="status"
             data-testid="dlp-vault-saved-banner"
-            className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--zapia-text)]"
+            className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-3 space-y-2 text-xs text-[var(--zapia-text)]"
           >
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <Lock className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span className="leading-snug">{vaultSavedFeedback}</span>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <Lock className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span className="leading-snug">{vaultSavedFeedback.message}</span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVaultSavedFeedback(null);
+                    onQuickOpenWorkspace('vault');
+                  }}
+                  className="px-3 py-1.5 rounded-full bg-emerald-600 text-white font-semibold hover:bg-emerald-500 transition-colors"
+                >
+                  Abrir Cofre E2EE
+                </button>
+                <button
+                  type="button"
+                  aria-label="Fechar aviso do cofre"
+                  onClick={() => setVaultSavedFeedback(null)}
+                  className="p-1 text-[var(--zapia-muted)] hover:text-[var(--zapia-text)]"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => {
-                  setVaultSavedFeedback(null);
-                  onQuickOpenWorkspace('vault');
-                }}
-                className="px-3 py-1.5 rounded-full bg-emerald-600 text-white font-semibold hover:bg-emerald-500 transition-colors"
+
+            {(settings.suggestDriveSyncOnSensitiveSave ?? true) && (
+              <div
+                data-testid="chat-drive-sync-suggestion"
+                className="pt-2 border-t border-emerald-500/25 flex flex-wrap items-center justify-between gap-2"
               >
-                Abrir Cofre E2EE
-              </button>
-              <button
-                type="button"
-                aria-label="Fechar aviso do cofre"
-                onClick={() => setVaultSavedFeedback(null)}
-                className="p-1 text-[var(--zapia-muted)] hover:text-[var(--zapia-text)]"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
+                <div className="flex items-center gap-1.5 text-[11px] text-emerald-300">
+                  <CloudUpload className="w-3.5 h-3.5 shrink-0" />
+                  <span>
+                    Sugestão Google Drive: envie uma cópia protegida deste dado sensível para seu Google Drive.
+                  </span>
+                </div>
+                {hasGoogleToken && vaultSavedFeedback.savedItem && onUploadVaultItemToDrive ? (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const target = vaultSavedFeedback.savedItem!;
+                      await onUploadVaultItemToDrive(target);
+                      setVaultSavedFeedback(null);
+                    }}
+                    className="px-3 py-1 rounded-full bg-white text-[#111113] text-[11px] font-semibold hover:bg-neutral-200 transition-colors"
+                  >
+                    Sincronizar no Google Drive
+                  </button>
+                ) : onRequestGoogleLogin ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVaultSavedFeedback(null);
+                      onRequestGoogleLogin();
+                    }}
+                    className="px-3 py-1 rounded-full bg-white text-[#111113] text-[11px] font-semibold hover:bg-neutral-200 transition-colors"
+                  >
+                    Conectar Google Drive e Sincronizar
+                  </button>
+                ) : null}
+              </div>
+            )}
           </div>
         )}
 
@@ -889,6 +976,10 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
               settings={settings}
               preferences={preferences}
               dailyCheckins={dailyCheckins}
+              messages={messages}
+              vaultItems={vaultItems}
+              reminders={reminders}
+              auditLogs={auditLogs}
               isOnline={isOnline}
               onUpdateSettings={onUpdateSettings}
               onAddPreference={onAddPreference}

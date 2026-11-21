@@ -46,6 +46,7 @@ import {
   VoiceSampleItem,
   ZAPIA_THEMES,
   buildThreadTitleFromMessage,
+  buildWeeklySummary,
   detectDeviceMetadata,
   generateProactiveRadarCards,
   getThreadColorHex,
@@ -196,7 +197,7 @@ export default function App() {
         getMetaValue<string | null>('last_global_sync_v1', null),
       ]);
       if (!mounted) return;
-      setSettings(savedSettings);
+      setSettings({ ...DEFAULT_SETTINGS, ...(savedSettings || {}) });
       setThreads(savedThreads.sort((a, b) => b.updatedAtIso.localeCompare(a.updatedAtIso)));
       setMessages(savedMsgs.sort((a, b) => a.createdAtIso.localeCompare(b.createdAtIso)));
       setPreferences(savedPrefs);
@@ -403,7 +404,7 @@ export default function App() {
     mimeType: string,
     bytes: Uint8Array,
     textPreview?: string
-  ) => {
+  ): Promise<LocalVaultItem> => {
     const scan = scanFileContent(title, mimeType, bytes, textPreview);
     const encrypted = await encryptBytesE2EE(bytes);
     const now = new Date().toISOString();
@@ -441,15 +442,31 @@ export default function App() {
         })
         .catch(() => {});
     }
+
+    return item;
   };
 
-  const handleUploadLocalFiles = async (fileList: FileList) => {
+  const handleUploadVaultItemToDrive = async (item: LocalVaultItem) => {
+    if (!googleToken) return;
+    const plainBytes = await decryptBytesE2EE(item.encryptedPayload, item.iv);
+    const df = await uploadFileToDrive(googleToken, item.title, item.mimeType, plainBytes);
+    const updated = { ...item, driveFileId: df.id };
+    await putStoreItem('vaultItems', updated);
+    setVaultItems((prev) => prev.map((v) => (v.id === item.id ? updated : v)));
+    setDriveFiles((prev) => [df, ...prev]);
+    await appendAudit('Backup Google Drive', item.title, 'seguro');
+  };
+
+  const handleUploadLocalFiles = async (fileList: FileList): Promise<LocalVaultItem[]> => {
+    const created: LocalVaultItem[] = [];
     for (const file of Array.from(fileList)) {
       const buf = await file.arrayBuffer();
       const bytes = new Uint8Array(buf);
       const textPreview = file.type.startsWith('text/') ? new TextDecoder().decode(bytes.slice(0, 4000)) : undefined;
-      await handleCreateVaultItem(file.name, file.type || 'application/octet-stream', bytes, textPreview);
+      const item = await handleCreateVaultItem(file.name, file.type || 'application/octet-stream', bytes, textPreview);
+      created.push(item);
     }
+    return created;
   };
 
   const handleAddPreference = async (
@@ -803,6 +820,18 @@ export default function App() {
 
   const radarBadgeCount = Math.max(1, pendingReminders.length + quarantinedCount);
 
+  const weeklySummary = useMemo(
+    () =>
+      buildWeeklySummary({
+        checkins: dailyCheckins,
+        messages,
+        vaultItems,
+        reminders,
+        auditLogs,
+      }),
+    [dailyCheckins, messages, vaultItems, reminders, auditLogs]
+  );
+
   return (
     <ErrorBoundary>
       <div className="min-h-screen flex bg-[var(--zapia-bg)] text-[var(--zapia-text)]">
@@ -857,7 +886,7 @@ export default function App() {
             <button
               type="button"
               onClick={handleNewChat}
-              aria-label="ZAPIA Início"
+              aria-label="ZAPIA MS Início"
               className="flex items-center justify-center focus-visible:outline-none"
             >
               <ZapiaWordmark className="h-5 sm:h-6" />
@@ -950,12 +979,19 @@ export default function App() {
                 }
                 connectors={connectors}
                 dailyCheckins={dailyCheckins}
+                vaultItems={vaultItems}
+                reminders={reminders}
+                auditLogs={auditLogs}
+                hasGoogleToken={!!googleToken}
+                onRequestGoogleLogin={() => handleGoogleAccountAuth()}
+                onUploadVaultItemToDrive={handleUploadVaultItemToDrive}
                 onSelectAiConnector={handleSetActiveAiConnector}
                 onOpenConnectors={() => setActiveView('connect')}
                 onSaveSensitiveToVault={async (title, content) => {
                   const bytes = new TextEncoder().encode(content);
-                  await handleCreateVaultItem(title, 'text/plain', bytes, content);
+                  const saved = await handleCreateVaultItem(title, 'text/plain', bytes, content);
                   await appendAudit('Dado sensível protegido no Cofre E2EE', title, 'seguro');
+                  return saved;
                 }}
                 onSaveDailyCheckin={handleSaveDailyCheckin}
               />
@@ -1302,21 +1338,13 @@ export default function App() {
                     contacts={contacts}
                     hasGoogleToken={!!googleToken}
                     isLoadingDrive={isLoadingWorkspace}
+                    suggestDriveSyncOnSensitiveSave={settings.suggestDriveSyncOnSensitiveSave ?? true}
                     onCreateNoteFile={async (title, content) => {
                       const bytes = new TextEncoder().encode(content);
-                      await handleCreateVaultItem(title, 'text/plain', bytes, content);
+                      return await handleCreateVaultItem(title, 'text/plain', bytes, content);
                     }}
                     onUploadLocalFiles={handleUploadLocalFiles}
-                    onUploadToDrive={async (item) => {
-                      if (!googleToken) return;
-                      const plainBytes = await decryptBytesE2EE(item.encryptedPayload, item.iv);
-                      const df = await uploadFileToDrive(googleToken, item.title, item.mimeType, plainBytes);
-                      const updated = { ...item, driveFileId: df.id };
-                      await putStoreItem('vaultItems', updated);
-                      setVaultItems((prev) => prev.map((v) => (v.id === item.id ? updated : v)));
-                      setDriveFiles((prev) => [df, ...prev]);
-                      await appendAudit('Backup Google Drive', item.title, 'seguro');
-                    }}
+                    onUploadToDrive={handleUploadVaultItemToDrive}
                     onRefreshDrive={() => refreshWorkspaceData()}
                     onShareViaGmail={async (to, subject, body) => {
                       if (!googleToken) throw new Error('Conecte o Gmail primeiro.');
@@ -1411,6 +1439,10 @@ export default function App() {
                           settings={settings}
                           preferences={preferences}
                           dailyCheckins={dailyCheckins}
+                          messages={messages}
+                          vaultItems={vaultItems}
+                          reminders={reminders}
+                          auditLogs={auditLogs}
                           voiceSamples={voiceSamples}
                           trainedProfiles={trainedProfiles}
                           isOnline={isOnline}
@@ -1493,6 +1525,7 @@ export default function App() {
                       auditLogs={auditLogs}
                       vaultCount={vaultItems.length}
                       galleryCount={galleryItems.length}
+                      weeklySummary={activeView === 'radar' ? weeklySummary : undefined}
                       onUpdateSettings={handleUpdateSettings}
                       onRunSecuritySweep={async () => {
                         for (const item of vaultItems) {

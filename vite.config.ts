@@ -15,9 +15,9 @@ export default defineConfig(() => {
         includeAssets: ['icon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png'],
         manifest: {
           id: '/',
-          name: 'ZAPIA Assistente Inteligente',
-          short_name: 'ZAPIA',
-          description: 'Assistente inteligente multiplataforma com vozes realistas, cofre criptografado offline, galeria e Google Workspace por Moisés de Carvalho.',
+          name: 'ZAPIA MS Assistente Inteligente',
+          short_name: 'ZAPIA MS',
+          description: 'ZAPIA MS: assistente inteligente multiplataforma com vozes realistas, cofre criptografado offline, galeria e Google Workspace por Moisés de Carvalho.',
           theme_color: '#0B0D13',
           background_color: '#0B0D13',
           display: 'standalone',

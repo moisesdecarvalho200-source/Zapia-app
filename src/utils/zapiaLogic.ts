@@ -1484,3 +1484,345 @@ export function summarizeSelfKnowledgeInsights(
   };
 }
 
+export type SentimentPolarity = 'positivo' | 'neutro' | 'negativo' | 'misto';
+
+export interface SentimentResult {
+  polarity: SentimentPolarity;
+  score: number;
+  label: string;
+  toneHint: string;
+  positiveMatches: string[];
+  negativeMatches: string[];
+}
+
+const POSITIVE_SENTIMENT_WORDS = new Set([
+  'feliz',
+  'otimo',
+  'otima',
+  'excelente',
+  'maravilhoso',
+  'maravilhosa',
+  'bom',
+  'boa',
+  'bem',
+  'focado',
+  'focada',
+  'motivado',
+  'motivada',
+  'inspirado',
+  'inspirada',
+  'grato',
+  'grata',
+  'gratidao',
+  'produtivo',
+  'produtiva',
+  'alegre',
+  'conquista',
+  'conquistei',
+  'sucesso',
+  'orgulho',
+  'leve',
+  'tranquilo',
+  'tranquila',
+  'calmo',
+  'calma',
+  'confiante',
+  'animado',
+  'animada',
+  'criativo',
+  'criativa',
+  'amei',
+  'adorei',
+  'gostei',
+  'perfeito',
+  'perfeita',
+  'evoluindo',
+  'evolucao',
+  'consegui',
+  'clareza',
+  'satisfeito',
+  'satisfeita',
+  'avanco',
+  'avancei',
+  'paz',
+  'vitoria',
+  'disposto',
+  'disposta',
+]);
+
+const NEGATIVE_SENTIMENT_WORDS = new Set([
+  'triste',
+  'cansado',
+  'cansada',
+  'exausto',
+  'exausta',
+  'estressado',
+  'estressada',
+  'estresse',
+  'ansioso',
+  'ansiosa',
+  'ansiedade',
+  'preocupado',
+  'preocupada',
+  'ruim',
+  'pessimo',
+  'pessima',
+  'horrivel',
+  'dificil',
+  'frustrado',
+  'frustrada',
+  'raiva',
+  'desanimado',
+  'desanimada',
+  'bloqueado',
+  'atrasado',
+  'atrasada',
+  'perdido',
+  'perdida',
+  'dor',
+  'medo',
+  'sobrecarregado',
+  'sobrecarregada',
+  'esgotado',
+  'esgotada',
+  'odiei',
+  'falha',
+  'falhei',
+  'erro',
+  'problema',
+  'tenso',
+  'tensa',
+  'angustiado',
+  'chateado',
+  'chateada',
+  'insatisfeito',
+  'desgastado',
+  'prejuizo',
+]);
+
+const NEGATION_TOKENS = new Set(['nao', 'nem', 'nunca', 'jamais', 'sem']);
+const INTENSIFIER_TOKENS = new Set(['muito', 'super', 'bem', 'bastante', 'extremamente', 'demais']);
+
+function normalizePtTokens(text: string): string[] {
+  return (text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+export function analyzeSentiment(text: string): SentimentResult {
+  const tokens = normalizePtTokens(text);
+  if (tokens.length === 0) {
+    return {
+      polarity: 'neutro',
+      score: 0,
+      label: 'Neutro',
+      toneHint: 'Sem texto suficiente',
+      positiveMatches: [],
+      negativeMatches: [],
+    };
+  }
+
+  let rawScore = 0;
+  const positiveMatches: string[] = [];
+  const negativeMatches: string[] = [];
+
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    const prev1 = i > 0 ? tokens[i - 1] : '';
+    const prev2 = i > 1 ? tokens[i - 2] : '';
+    const isNegated = NEGATION_TOKENS.has(prev1) || NEGATION_TOKENS.has(prev2);
+    const weight = INTENSIFIER_TOKENS.has(prev1) ? 1.5 : 1;
+
+    if (POSITIVE_SENTIMENT_WORDS.has(tok)) {
+      if (isNegated) {
+        rawScore -= weight;
+        negativeMatches.push(`não ${tok}`);
+      } else {
+        rawScore += weight;
+        positiveMatches.push(tok);
+      }
+    } else if (NEGATIVE_SENTIMENT_WORDS.has(tok)) {
+      if (isNegated) {
+        rawScore += weight * 0.7;
+        positiveMatches.push(`sem ${tok}`);
+      } else {
+        rawScore -= weight;
+        negativeMatches.push(tok);
+      }
+    }
+  }
+
+  const totalHits = positiveMatches.length + negativeMatches.length;
+  const normalizedScore =
+    totalHits === 0 ? 0 : Math.max(-1, Math.min(1, Number((rawScore / (totalHits + 1)).toFixed(2))));
+
+  let polarity: SentimentPolarity = 'neutro';
+  let label = 'Neutro';
+  let toneHint = 'Tom objetivo e equilibrado';
+
+  if (positiveMatches.length > 0 && negativeMatches.length > 0 && Math.abs(normalizedScore) < 0.2) {
+    polarity = 'misto';
+    label = 'Misto';
+    toneHint = 'Sinais positivos e pontos de atenção';
+  } else if (normalizedScore >= 0.15) {
+    polarity = 'positivo';
+    label = 'Positivo';
+    toneHint = normalizedScore >= 0.5 ? 'Alta motivação e confiança' : 'Estado construtivo e leve';
+  } else if (normalizedScore <= -0.15) {
+    polarity = 'negativo';
+    label = 'Negativo';
+    toneHint = normalizedScore <= -0.5 ? 'Sinal de desgaste ou tensão' : 'Ponto de atenção emocional';
+  }
+
+  return {
+    polarity,
+    score: normalizedScore,
+    label,
+    toneHint,
+    positiveMatches: Array.from(new Set(positiveMatches)).slice(0, 5),
+    negativeMatches: Array.from(new Set(negativeMatches)).slice(0, 5),
+  };
+}
+
+export interface WeeklySummaryReport {
+  periodLabel: string;
+  checkinCount: number;
+  averageEnergy: number;
+  dominantMood: string;
+  userMessageCount: number;
+  assistantMessageCount: number;
+  vaultSavedCount: number;
+  completedReminders: number;
+  pendingReminders: number;
+  securityAlertsCount: number;
+  overallSentiment: SentimentResult;
+  highlights: string[];
+  aiPrompt: string;
+}
+
+export function buildWeeklySummary(input: {
+  checkins: Array<{
+    dateIso?: string;
+    mood: string;
+    energy: number;
+    focusGoal: string;
+    reflection: string;
+    createdAtIso: string;
+  }>;
+  messages: Array<{
+    role: 'user' | 'assistant';
+    content: string;
+    createdAtIso: string;
+  }>;
+  vaultItems: Array<{
+    scanStatus: string;
+    createdAtIso: string;
+  }>;
+  reminders: Array<{
+    status: string;
+    createdAtIso: string;
+  }>;
+  auditLogs?: Array<{
+    verdict: string;
+    createdAtIso: string;
+  }>;
+  nowIso?: string;
+}): WeeklySummaryReport {
+  const nowMs = input.nowIso ? Date.parse(input.nowIso) : Date.now();
+  const safeNowMs = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const weekStartMs = safeNowMs - 7 * 24 * 60 * 60 * 1000;
+
+  const inLast7Days = (iso?: string): boolean => {
+    if (!iso) return false;
+    const t = Date.parse(iso);
+    return Number.isFinite(t) && t >= weekStartMs && t <= safeNowMs + 60000;
+  };
+
+  const weekCheckins = (input.checkins || []).filter((c) => inLast7Days(c.createdAtIso));
+  const weekMessages = (input.messages || []).filter((m) => inLast7Days(m.createdAtIso));
+  const weekVault = (input.vaultItems || []).filter((v) => inLast7Days(v.createdAtIso));
+  const weekReminders = (input.reminders || []).filter((r) => inLast7Days(r.createdAtIso));
+  const weekAudits = (input.auditLogs || []).filter((a) => inLast7Days(a.createdAtIso));
+
+  const checkinSummary = summarizeSelfKnowledgeInsights(
+    weekCheckins.map((c) => ({
+      dateIso: c.dateIso || c.createdAtIso.slice(0, 10),
+      mood: c.mood,
+      energy: c.energy,
+      focusGoal: c.focusGoal,
+      reflection: c.reflection,
+    }))
+  );
+
+  const userMessages = weekMessages.filter((m) => m.role === 'user');
+  const assistantMessages = weekMessages.filter((m) => m.role === 'assistant');
+
+  const sentimentCorpus = [
+    ...weekCheckins.map((c) => `${c.mood} ${c.focusGoal} ${c.reflection}`),
+    ...userMessages.map((m) => m.content),
+  ]
+    .filter(Boolean)
+    .join(' . ');
+
+  const overallSentiment = analyzeSentiment(sentimentCorpus);
+
+  const completedReminders = weekReminders.filter((r) => r.status === 'concluido').length;
+  const pendingReminders = (input.reminders || []).filter((r) => r.status === 'pendente').length;
+  const securityAlertsCount =
+    weekVault.filter((v) => v.scanStatus !== 'limpo').length +
+    weekAudits.filter((a) => a.verdict !== 'seguro').length;
+
+  const startLabel = new Date(weekStartMs).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+  const endLabel = new Date(safeNowMs).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+
+  const highlights: string[] = [];
+  if (weekCheckins.length > 0) {
+    highlights.push(
+      `${weekCheckins.length} check-in(s) emocional(is) com energia média ${checkinSummary.averageEnergy}/10 e humor "${checkinSummary.dominantMood}".`
+    );
+  } else {
+    highlights.push('Nenhum check-in registrado nos últimos 7 dias — faça seu primeiro registro para calibrar o radar emocional.');
+  }
+
+  highlights.push(
+    `Sentimento predominante da semana: ${overallSentiment.label} (${overallSentiment.toneHint}).`
+  );
+
+  if (weekVault.length > 0 || completedReminders > 0) {
+    highlights.push(
+      `${weekVault.length} documento(s) protegidos no Cofre E2EE e ${completedReminders} lembrete(s) concluído(s).`
+    );
+  } else if (userMessages.length > 0) {
+    highlights.push(
+      `${userMessages.length} comando(s) enviados ao ZAPIA MS nos últimos 7 dias (${pendingReminders} lembrete(s) ativo(s)).`
+    );
+  }
+
+  if (securityAlertsCount > 0) {
+    highlights.push(`${securityAlertsCount} alerta(s) de segurança ou quarentena registrados no período.`);
+  }
+
+  const aiPrompt = `Gere um Resumo Semanal ZAPIA MS personalizado com foco em produtividade e bem-estar considerando os últimos 7 dias (${startLabel} a ${endLabel}): ${weekCheckins.length} check-ins (energia média ${checkinSummary.averageEnergy}/10, humor ${checkinSummary.dominantMood}), sentimento geral ${overallSentiment.label}, ${userMessages.length} perguntas enviadas, ${weekVault.length} arquivos no Cofre E2EE e ${completedReminders} tarefas concluídas.`;
+
+  return {
+    periodLabel: `${startLabel} – ${endLabel}`,
+    checkinCount: weekCheckins.length,
+    averageEnergy: checkinSummary.averageEnergy,
+    dominantMood: checkinSummary.dominantMood,
+    userMessageCount: userMessages.length,
+    assistantMessageCount: assistantMessages.length,
+    vaultSavedCount: weekVault.length,
+    completedReminders,
+    pendingReminders,
+    securityAlertsCount,
+    overallSentiment,
+    highlights,
+    aiPrompt,
+  };
+}
+
+

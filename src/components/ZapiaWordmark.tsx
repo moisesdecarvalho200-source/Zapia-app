@@ -2,24 +2,33 @@ import React from 'react';
 import { Mail } from 'lucide-react';
 
 export const ZapiaWordmark: React.FC<{ className?: string }> = ({ className = '' }) => (
-  <svg
-    viewBox="0 0 184 36"
-    fill="none"
-    xmlns="http://www.w3.org/2000/svg"
-    aria-label="ZAPIA"
-    className={`h-6 w-auto text-[var(--zapia-text)] ${className}`}
+  <span
+    className="inline-flex items-center gap-1.5"
+    aria-label="ZAPIA MS"
+    data-testid="zapia-ms-wordmark"
   >
-    {/* Z */}
-    <path d="M2 4H36V11L15 25H36V32H2V25L23 11H2V4Z" fill="currentColor" />
-    {/* A */}
-    <path d="M41 4H74V32H61V23H54V32H41V4ZM54 11V17H61V11H54Z" fill="currentColor" />
-    {/* P */}
-    <path d="M79 4H111V22H92V32H79V4ZM92 11V16H99V11H92Z" fill="currentColor" />
-    {/* I */}
-    <path d="M116 4H130V32H116V4Z" fill="currentColor" />
-    {/* A */}
-    <path d="M135 4H168V32H155V23H148V32H135V4ZM148 11V17H155V11H148Z" fill="currentColor" />
-  </svg>
+    <svg
+      viewBox="0 0 172 36"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      className={`h-6 w-auto text-[var(--zapia-text)] ${className}`}
+    >
+      {/* Z */}
+      <path d="M2 4H36V11L15 25H36V32H2V25L23 11H2V4Z" fill="currentColor" />
+      {/* A */}
+      <path d="M41 4H74V32H61V23H54V32H41V4ZM54 11V17H61V11H54Z" fill="currentColor" />
+      {/* P */}
+      <path d="M79 4H111V22H92V32H79V4ZM92 11V16H99V11H92Z" fill="currentColor" />
+      {/* I */}
+      <path d="M116 4H130V32H116V4Z" fill="currentColor" />
+      {/* A */}
+      <path d="M135 4H168V32H155V23H148V32H135V4ZM148 11V17H155V11H148Z" fill="currentColor" />
+    </svg>
+    <span className="px-1.5 py-0.5 rounded-md bg-[var(--zapia-accent)] text-[var(--zapia-accent-fg)] font-mono-tabular text-[11px] font-bold tracking-wider leading-none">
+      MS
+    </span>
+  </span>
 );
 
 export const ZapiaProGraphic: React.FC<{ className?: string }> = ({ className = '' }) => (

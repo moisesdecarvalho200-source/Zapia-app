@@ -8,8 +8,10 @@ import {
   Sparkles,
   CheckCircle2,
   Trash2,
+  CloudUpload,
+  CalendarRange,
 } from 'lucide-react';
-import { ThemeId, ZAPIA_THEMES } from '../utils/zapiaLogic';
+import { ThemeId, WeeklySummaryReport, ZAPIA_THEMES } from '../utils/zapiaLogic';
 import { LocalAuditLog, ZapiaSettingsState, clearTemporaryCache } from '../utils/offlineDb';
 
 interface SystemOptimizerViewProps {
@@ -17,6 +19,7 @@ interface SystemOptimizerViewProps {
   auditLogs: LocalAuditLog[];
   vaultCount: number;
   galleryCount: number;
+  weeklySummary?: WeeklySummaryReport;
   onUpdateSettings: (patch: Partial<ZapiaSettingsState>) => void;
   onRunSecuritySweep: () => Promise<void>;
 }
@@ -36,6 +39,7 @@ export const SystemOptimizerView: React.FC<SystemOptimizerViewProps> = ({
   auditLogs,
   vaultCount,
   galleryCount,
+  weeklySummary,
   onUpdateSettings,
   onRunSecuritySweep,
 }) => {
@@ -99,8 +103,116 @@ export const SystemOptimizerView: React.FC<SystemOptimizerViewProps> = ({
     );
   };
 
+  const suggestDriveOnSensitive = settings.suggestDriveSyncOnSensitiveSave ?? true;
+
   return (
     <div className="space-y-6">
+      {/* Google Drive & Vault E2EE Sync Preferences */}
+      <section className="rounded-2xl border border-[var(--zapia-border)] bg-[var(--zapia-surface)] p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <CloudUpload className="w-4 h-4 text-[var(--zapia-accent)]" />
+          <h2 className="text-lg font-semibold text-[var(--zapia-text)]">
+            Sincronização Google Drive & Dados Sensíveis
+          </h2>
+        </div>
+
+        <div className="space-y-3">
+          <div className="p-4 rounded-xl border border-[var(--zapia-border)] bg-[var(--zapia-bg)] flex items-center justify-between gap-4">
+            <div className="min-w-0 space-y-1">
+              <div className="text-sm font-semibold text-[var(--zapia-text)]">
+                Sugerir sincronização para o Google Drive ao salvar dados sensíveis
+              </div>
+              <p className="text-xs text-[var(--zapia-muted)] leading-relaxed">
+                Sempre que você salvar chaves de API, senhas, CPF ou documentos confidenciais no Cofre E2EE, o ZAPIA MS sugerirá enviar uma cópia protegida para seu Google Drive.
+              </p>
+            </div>
+            <button
+              id="toggle-suggest-drive-sensitive"
+              data-testid="toggle-suggest-drive-sensitive"
+              type="button"
+              role="switch"
+              aria-checked={suggestDriveOnSensitive}
+              aria-label="Sugerir sincronização no Google Drive ao salvar dados sensíveis"
+              onClick={() =>
+                onUpdateSettings({
+                  suggestDriveSyncOnSensitiveSave: !suggestDriveOnSensitive,
+                })
+              }
+              className={`px-3.5 py-2 rounded-full text-xs font-semibold transition-colors shrink-0 ${
+                suggestDriveOnSensitive
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-[var(--zapia-surface-alt)] text-[var(--zapia-muted)] border border-[var(--zapia-border)]'
+              }`}
+            >
+              {suggestDriveOnSensitive ? 'Ativado' : 'Desativado'}
+            </button>
+          </div>
+
+          <div className="p-4 rounded-xl border border-[var(--zapia-border)] bg-[var(--zapia-bg)] flex items-center justify-between gap-4">
+            <div className="min-w-0 space-y-1">
+              <div className="text-sm font-semibold text-[var(--zapia-text)]">
+                Envio automático em segundo plano (Google Drive conectado)
+              </div>
+              <p className="text-xs text-[var(--zapia-muted)] leading-relaxed">
+                Quando sua conta Google estiver conectada, replica automaticamente novos itens limpos do Cofre offline para o Google Drive.
+              </p>
+            </div>
+            <button
+              id="toggle-auto-backup-drive"
+              data-testid="toggle-auto-backup-drive"
+              type="button"
+              role="switch"
+              aria-checked={settings.autoBackupDrive}
+              aria-label="Backup automático em segundo plano no Google Drive"
+              onClick={() => onUpdateSettings({ autoBackupDrive: !settings.autoBackupDrive })}
+              className={`px-3.5 py-2 rounded-full text-xs font-semibold transition-colors shrink-0 ${
+                settings.autoBackupDrive
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-[var(--zapia-surface-alt)] text-[var(--zapia-muted)] border border-[var(--zapia-border)]'
+              }`}
+            >
+              {settings.autoBackupDrive ? 'Ativado' : 'Manual'}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {weeklySummary && (
+        <section
+          data-testid="radar-weekly-summary"
+          className="rounded-2xl border border-[var(--zapia-border)] bg-[var(--zapia-surface)] p-5 space-y-3"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <CalendarRange className="w-4 h-4 text-[var(--zapia-accent)]" />
+              <h3 className="text-base font-semibold text-[var(--zapia-text)]">
+                Resumo Semanal ZAPIA MS ({weeklySummary.periodLabel})
+              </h3>
+            </div>
+            <span
+              className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                weeklySummary.overallSentiment.polarity === 'positivo'
+                  ? 'bg-emerald-500/15 text-emerald-400'
+                  : weeklySummary.overallSentiment.polarity === 'negativo'
+                    ? 'bg-rose-500/15 text-rose-400'
+                    : weeklySummary.overallSentiment.polarity === 'misto'
+                      ? 'bg-amber-500/15 text-amber-400'
+                      : 'bg-[var(--zapia-surface-alt)] text-[var(--zapia-muted)]'
+              }`}
+            >
+              Sentimento: {weeklySummary.overallSentiment.label}
+            </span>
+          </div>
+          <ul className="space-y-1.5 text-xs text-[var(--zapia-muted)]">
+            {weeklySummary.highlights.map((h, i) => (
+              <li key={i} className="leading-relaxed">
+                • {h}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {/* Theme & Color Switcher */}
       <section className="rounded-2xl border border-[var(--zapia-border)] bg-[var(--zapia-surface)] p-5 space-y-4">
         <div className="flex items-center gap-2">
@@ -266,7 +378,7 @@ export const SystemOptimizerView: React.FC<SystemOptimizerViewProps> = ({
         </div>
 
         <div className="pt-2 flex items-center justify-between text-xs text-[var(--zapia-muted)] border-t border-[var(--zapia-border)]">
-          <span>ZAPIA Assistente Inteligente · Assinado por Moisés de Carvalho</span>
+          <span>ZAPIA MS Assistente Inteligente · Assinado por Moisés de Carvalho</span>
           <button
             type="button"
             onClick={async () => {

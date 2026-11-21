@@ -10,6 +10,8 @@ import {
   Radio,
   Sparkles,
   Heart,
+  CalendarRange,
+  Activity,
 } from 'lucide-react';
 import {
   PERSONA_PROFILES,
@@ -20,11 +22,21 @@ import {
   VoiceEffectId,
   VoiceGenderMode,
   VoiceSampleItem,
+  analyzeSentiment,
+  buildWeeklySummary,
   speedToPlaybackRate,
   summarizeSelfKnowledgeInsights,
   toneToPitchRatio,
 } from '../utils/zapiaLogic';
-import { LocalDailyCheckin, LocalPreference, ZapiaSettingsState } from '../utils/offlineDb';
+import {
+  LocalAuditLog,
+  LocalDailyCheckin,
+  LocalMessage,
+  LocalPreference,
+  LocalReminder,
+  LocalVaultItem,
+  ZapiaSettingsState,
+} from '../utils/offlineDb';
 import { zapiaSpeech } from '../utils/speechPlayer';
 import { VoiceTrainingSection } from './VoiceTrainingSection';
 
@@ -32,6 +44,10 @@ interface PersonaVoicePanelProps {
   settings: ZapiaSettingsState;
   preferences: LocalPreference[];
   dailyCheckins?: LocalDailyCheckin[];
+  messages?: LocalMessage[];
+  vaultItems?: LocalVaultItem[];
+  reminders?: LocalReminder[];
+  auditLogs?: LocalAuditLog[];
   voiceSamples?: VoiceSampleItem[];
   trainedProfiles?: TrainedVoiceProfile[];
   isOnline?: boolean;
@@ -51,6 +67,10 @@ export const PersonaVoicePanel: React.FC<PersonaVoicePanelProps> = ({
   settings,
   preferences,
   dailyCheckins = [],
+  messages = [],
+  vaultItems = [],
+  reminders = [],
+  auditLogs = [],
   voiceSamples = [],
   trainedProfiles = [],
   isOnline = true,
@@ -71,7 +91,7 @@ export const PersonaVoicePanel: React.FC<PersonaVoicePanelProps> = ({
   const [isTestingVoice, setIsTestingVoice] = useState(false);
   const [activeTestVoice, setActiveTestVoice] = useState<string | null>(null);
   const [testPhrase, setTestPhrase] = useState(
-    'Olá, Moisés! Esta é uma demonstração em tempo real da minha cadência, timbre e personalidade no ZAPIA.'
+    'Olá, Moisés! Esta é uma demonstração em tempo real da minha cadência, timbre e personalidade no ZAPIA MS.'
   );
   const [voiceFeedback, setVoiceFeedback] = useState<string | null>(null);
 
@@ -133,6 +153,25 @@ export const PersonaVoicePanel: React.FC<PersonaVoicePanelProps> = ({
     voicePitch > 62 ? 'Agudo / Brilhante' : voicePitch < 38 ? 'Grave / Encorpado' : 'Natural Equilibrado';
 
   const selfKnowledgeSummary = summarizeSelfKnowledgeInsights(dailyCheckins);
+  const liveReflectionSentiment = analyzeSentiment(
+    `${checkinMood} ${checkinGoal} ${checkinReflection}`.trim()
+  );
+  const weeklySummary = buildWeeklySummary({
+    checkins: dailyCheckins,
+    messages,
+    vaultItems,
+    reminders,
+    auditLogs,
+  });
+
+  const sentimentBadgeClass = (polarity: string) =>
+    polarity === 'positivo'
+      ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+      : polarity === 'negativo'
+        ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+        : polarity === 'misto'
+          ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+          : 'bg-[var(--zapia-surface-alt)] text-[var(--zapia-muted)] border border-[var(--zapia-border)]';
 
   return (
     <div className="space-y-6">
@@ -598,6 +637,25 @@ export const PersonaVoicePanel: React.FC<PersonaVoicePanelProps> = ({
               />
             </div>
 
+            {/* Live Sentiment Analysis Preview */}
+            <div
+              data-testid="live-sentiment-badge"
+              className="p-3 rounded-xl border border-[var(--zapia-border)] bg-[var(--zapia-bg)] flex flex-wrap items-center justify-between gap-2 text-xs"
+            >
+              <div className="flex items-center gap-2">
+                <Activity className="w-3.5 h-3.5 text-[var(--zapia-accent)]" />
+                <span className="font-semibold text-[var(--zapia-text)]">
+                  Análise de Sentimento em Tempo Real:
+                </span>
+                <span className={`px-2 py-0.5 rounded-md text-[11px] font-semibold ${sentimentBadgeClass(liveReflectionSentiment.polarity)}`}>
+                  {liveReflectionSentiment.label}
+                </span>
+              </div>
+              <span className="text-[11px] text-[var(--zapia-muted)]">
+                {liveReflectionSentiment.toneHint} (score {liveReflectionSentiment.score.toFixed(2)})
+              </span>
+            </div>
+
             <div className="flex flex-wrap items-center justify-between gap-2">
               {checkinSavedMsg ? (
                 <span className="text-xs text-emerald-400" role="status">
@@ -605,7 +663,7 @@ export const PersonaVoicePanel: React.FC<PersonaVoicePanelProps> = ({
                 </span>
               ) : (
                 <span className="text-[11px] text-[var(--zapia-muted)]">
-                  Salvo com segurança no cofre offline e usado apenas pelo seu ZAPIA.
+                  Salvo com segurança no cofre offline e usado apenas pelo seu ZAPIA MS.
                 </span>
               )}
               <button
@@ -618,27 +676,110 @@ export const PersonaVoicePanel: React.FC<PersonaVoicePanelProps> = ({
           </form>
 
           {dailyCheckins.length > 0 && (
-            <div className="space-y-2 pt-2 border-t border-[var(--zapia-border)] max-h-36 overflow-y-auto">
-              {dailyCheckins.slice(0, 4).map((c) => (
-                <div
-                  key={c.id}
-                  className="text-xs flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-[var(--zapia-bg)] border border-[var(--zapia-border)]"
-                >
-                  <div className="min-w-0">
-                    <span className="font-semibold capitalize text-[var(--zapia-text)]">
-                      {c.mood} ({c.energy}/10)
-                    </span>{' '}
-                    · <span className="text-[var(--zapia-muted)]">{c.focusGoal}</span>
+            <div className="space-y-2 pt-2 border-t border-[var(--zapia-border)] max-h-44 overflow-y-auto">
+              {dailyCheckins.slice(0, 4).map((c) => {
+                const sent = analyzeSentiment(`${c.mood} ${c.focusGoal} ${c.reflection}`);
+                return (
+                  <div
+                    key={c.id}
+                    className="text-xs flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-[var(--zapia-bg)] border border-[var(--zapia-border)]"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <span className="font-semibold capitalize text-[var(--zapia-text)]">
+                        {c.mood} ({c.energy}/10)
+                      </span>{' '}
+                      · <span className="text-[var(--zapia-muted)]">{c.focusGoal}</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold ${sentimentBadgeClass(sent.polarity)}`}>
+                        {sent.label}
+                      </span>
+                      <span className="text-[11px] font-mono-tabular text-[var(--zapia-muted)]">
+                        {new Date(c.createdAtIso).toLocaleDateString('pt-BR')}
+                      </span>
+                    </div>
                   </div>
-                  <span className="text-[11px] font-mono-tabular text-[var(--zapia-muted)]">
-                    {new Date(c.createdAtIso).toLocaleDateString('pt-BR')}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>
       )}
+
+      {/* Resumo Semanal ZAPIA MS */}
+      <section
+        data-testid="weekly-summary-card"
+        className="rounded-2xl border border-[var(--zapia-border)] bg-[var(--zapia-surface)] p-5 space-y-4"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <CalendarRange className="w-5 h-5 text-[var(--zapia-accent)] shrink-0" />
+            <div>
+              <h3 className="text-base font-semibold text-[var(--zapia-text)]">
+                Resumo Semanal ZAPIA MS · {weeklySummary.periodLabel}
+              </h3>
+              <p className="text-xs text-[var(--zapia-muted)]">
+                Consolidação dos últimos 7 dias: análise de sentimento, energia, conversas e Cofre E2EE.
+              </p>
+            </div>
+          </div>
+
+          <span
+            data-testid="weekly-sentiment-pill"
+            className={`px-3 py-1 rounded-full text-xs font-semibold ${sentimentBadgeClass(weeklySummary.overallSentiment.polarity)}`}
+          >
+            Sentimento: {weeklySummary.overallSentiment.label}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="p-3 rounded-xl border border-[var(--zapia-border)] bg-[var(--zapia-bg)]">
+            <div className="text-[11px] text-[var(--zapia-muted)]">Check-ins / Energia</div>
+            <div className="text-base font-bold font-mono-tabular text-[var(--zapia-text)] mt-0.5">
+              {weeklySummary.checkinCount} · {weeklySummary.averageEnergy}/10
+            </div>
+          </div>
+          <div className="p-3 rounded-xl border border-[var(--zapia-border)] bg-[var(--zapia-bg)]">
+            <div className="text-[11px] text-[var(--zapia-muted)]">Interações 7d</div>
+            <div className="text-base font-bold font-mono-tabular text-[var(--zapia-text)] mt-0.5">
+              {weeklySummary.userMessageCount} perguntas
+            </div>
+          </div>
+          <div className="p-3 rounded-xl border border-[var(--zapia-border)] bg-[var(--zapia-bg)]">
+            <div className="text-[11px] text-[var(--zapia-muted)]">Cofre E2EE</div>
+            <div className="text-base font-bold font-mono-tabular text-[var(--zapia-text)] mt-0.5">
+              {weeklySummary.vaultSavedCount} novos
+            </div>
+          </div>
+          <div className="p-3 rounded-xl border border-[var(--zapia-border)] bg-[var(--zapia-bg)]">
+            <div className="text-[11px] text-[var(--zapia-muted)]">Lembretes</div>
+            <div className="text-base font-bold font-mono-tabular text-[var(--zapia-text)] mt-0.5">
+              {weeklySummary.completedReminders} concl. / {weeklySummary.pendingReminders} atv.
+            </div>
+          </div>
+        </div>
+
+        <ul className="space-y-1.5 text-xs text-[var(--zapia-muted)]">
+          {weeklySummary.highlights.map((item, idx) => (
+            <li key={idx} className="leading-relaxed">
+              • {item}
+            </li>
+          ))}
+        </ul>
+
+        {onAskSelfKnowledgeAi && (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => onAskSelfKnowledgeAi(weeklySummary.aiPrompt)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-[var(--zapia-accent)] text-[var(--zapia-accent-fg)] text-xs font-semibold hover:opacity-90 transition-opacity"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Aprofundar Resumo Semanal com IA</span>
+            </button>
+          </div>
+        )}
+      </section>
 
       {/* Personality & Learned Memory Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

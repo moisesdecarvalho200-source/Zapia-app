@@ -33,7 +33,7 @@ function getGeminiClient(): GoogleGenAI {
 }
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, app: 'ZAPIA Assistente Inteligente', owner: 'Moisés de Carvalho' });
+  res.json({ ok: true, app: 'ZAPIA MS Assistente Inteligente', owner: 'Moisés de Carvalho' });
 });
 
 interface ChatRequestBody {
@@ -71,7 +71,7 @@ app.post('/api/ai/chat', async (req, res) => {
       .join('\n');
 
     const systemInstruction = [
-      `Você é o ZAPIA, o assistente pessoal inteligente de ${userName}, criado no ecossistema de Moisés de Carvalho.`,
+      `Você é o ZAPIA MS, o assistente pessoal inteligente de ${userName}, criado no ecossistema de Moisés de Carvalho.`,
       `Fale sempre em português do Brasil claro, humano e realista.`,
       `Personalidade ativa: "${persona}". Estilo de tom configurado: ${toneStyle}.`,
       `Adapte o tratamento conforme a personalidade: "amigo" (caloroso, próximo), "colega" (colaborativo, ágil), "executivo" (estratégico, objetivo), "criativo" (inspirador, visual).`,
@@ -720,7 +720,7 @@ app.post('/api/connectors/chat', async (req, res) => {
     const baseClean = check.url.toString().replace(/\/+$/, '');
 
     const systemPrompt = [
-      `Você é o ZAPIA, assistente pessoal inteligente de ${body.userName || 'Moisés de Carvalho'}.`,
+      `Você é o ZAPIA MS, assistente pessoal inteligente de ${body.userName || 'Moisés de Carvalho'}.`,
       `Responda sempre em português do Brasil claro, com personalidade "${body.persona || 'amigo'}".`,
       `Ajude em tarefas diárias, automação, programação, construção de aplicativos e criação de jogos 2D/3D.`,
       body.dailyCheckinSummary ? `Autoconhecimento de hoje: ${body.dailyCheckinSummary}` : '',

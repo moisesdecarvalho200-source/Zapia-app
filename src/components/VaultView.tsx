@@ -13,8 +13,10 @@ import {
   Plus,
   Search,
   RefreshCw,
+  X,
 } from 'lucide-react';
 import { LocalVaultItem } from '../utils/offlineDb';
+import { analyzeSensitiveContent } from '../utils/zapiaLogic';
 import { decryptBytesE2EE } from '../utils/cryptoVault';
 import { ContactSummary, DriveFileSummary } from '../services/firebaseService';
 
@@ -24,8 +26,9 @@ interface VaultViewProps {
   contacts: ContactSummary[];
   hasGoogleToken: boolean;
   isLoadingDrive: boolean;
-  onCreateNoteFile: (title: string, content: string) => Promise<void>;
-  onUploadLocalFiles: (files: FileList) => Promise<void>;
+  suggestDriveSyncOnSensitiveSave?: boolean;
+  onCreateNoteFile: (title: string, content: string) => Promise<LocalVaultItem | void>;
+  onUploadLocalFiles: (files: FileList) => Promise<LocalVaultItem[] | void>;
   onUploadToDrive: (item: LocalVaultItem) => Promise<void>;
   onRefreshDrive: () => Promise<void>;
   onShareViaGmail: (to: string, subject: string, body: string) => Promise<void>;
@@ -39,6 +42,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
   contacts,
   hasGoogleToken,
   isLoadingDrive,
+  suggestDriveSyncOnSensitiveSave = true,
   onCreateNoteFile,
   onUploadLocalFiles,
   onUploadToDrive,
@@ -51,6 +55,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const [noteTitle, setNoteTitle] = useState('');
   const [noteBody, setNoteBody] = useState('');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [suggestedDriveItem, setSuggestedDriveItem] = useState<LocalVaultItem | null>(null);
   const [shareModalItem, setShareModalItem] = useState<LocalVaultItem | null>(null);
   const [shareRecipient, setShareRecipient] = useState('');
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<LocalVaultItem | null>(null);
@@ -64,10 +69,17 @@ export const VaultView: React.FC<VaultViewProps> = ({
     e.preventDefault();
     if (!noteTitle.trim() || !noteBody.trim()) return;
     const safeTitle = noteTitle.trim().endsWith('.txt') ? noteTitle.trim() : `${noteTitle.trim()}.txt`;
-    await onCreateNoteFile(safeTitle, noteBody);
+    const bodySnapshot = noteBody;
+    const created = await onCreateNoteFile(safeTitle, bodySnapshot);
     setNoteTitle('');
     setNoteBody('');
     setStatusMessage(`Arquivo "${safeTitle}" criptografado com AES-256-GCM e salvo offline.`);
+    const sensitive = analyzeSensitiveContent(bodySnapshot);
+    if (sensitive.hasSensitiveData && suggestDriveSyncOnSensitiveSave && created && !created.driveFileId) {
+      setSuggestedDriveItem(created);
+    } else {
+      setSuggestedDriveItem(null);
+    }
   };
 
   const handleDownload = async (item: LocalVaultItem) => {
@@ -178,9 +190,17 @@ export const VaultView: React.FC<VaultViewProps> = ({
                   type="file"
                   multiple
                   className="sr-only"
-                  onChange={(e) => {
+                  onChange={async (e) => {
                     if (e.target.files?.length) {
-                      onUploadLocalFiles(e.target.files);
+                      const createdList = await onUploadLocalFiles(e.target.files);
+                      if (
+                        suggestDriveSyncOnSensitiveSave &&
+                        Array.isArray(createdList) &&
+                        createdList.length > 0
+                      ) {
+                        const pending = createdList.find((it) => !it.driveFileId);
+                        if (pending) setSuggestedDriveItem(pending);
+                      }
                       e.target.value = '';
                     }
                   }}
@@ -254,6 +274,57 @@ export const VaultView: React.FC<VaultViewProps> = ({
       {statusMessage && (
         <div className="rounded-xl border border-[var(--zapia-border)] bg-[var(--zapia-surface-alt)] px-4 py-2.5 text-xs text-[var(--zapia-text)]" role="status">
           {statusMessage}
+        </div>
+      )}
+
+      {suggestedDriveItem && suggestDriveSyncOnSensitiveSave && (
+        <div
+          role="status"
+          data-testid="vault-drive-sync-suggestion"
+          className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--zapia-text)]"
+        >
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <CloudUpload className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="leading-snug">
+              <strong>Sugestão ZAPIA MS:</strong> Dados sensíveis detectados em{' '}
+              <strong>"{suggestedDriveItem.title}"</strong>. Deseja sincronizar uma cópia no Google Drive?
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {hasGoogleToken ? (
+              <button
+                type="button"
+                onClick={async () => {
+                  const target = suggestedDriveItem;
+                  setSuggestedDriveItem(null);
+                  await onUploadToDrive(target);
+                  setStatusMessage(`"${target.title}" sincronizado no Google Drive com sucesso.`);
+                }}
+                className="px-3.5 py-1.5 rounded-full bg-emerald-600 text-white font-semibold hover:bg-emerald-500 transition-colors"
+              >
+                Sincronizar no Google Drive
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setSuggestedDriveItem(null);
+                  onRequestGoogleLogin();
+                }}
+                className="px-3.5 py-1.5 rounded-full bg-emerald-600 text-white font-semibold hover:bg-emerald-500 transition-colors"
+              >
+                Conectar Google Drive
+              </button>
+            )}
+            <button
+              type="button"
+              aria-label="Dispensar sugestão Google Drive"
+              onClick={() => setSuggestedDriveItem(null)}
+              className="p-1.5 text-[var(--zapia-muted)] hover:text-[var(--zapia-text)]"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       )}
 

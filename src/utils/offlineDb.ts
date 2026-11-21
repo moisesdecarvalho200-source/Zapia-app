@@ -146,6 +146,7 @@ export interface ZapiaSettingsState {
   autoSpeak: boolean;
   themeId: ThemeId;
   autoBackupDrive: boolean;
+  suggestDriveSyncOnSensitiveSave: boolean;
   offlinePrivacyLock: boolean;
 }
 
@@ -177,6 +178,7 @@ export const DEFAULT_SETTINGS: ZapiaSettingsState = {
   autoSpeak: false,
   themeId: 'obsidian-crimson',
   autoBackupDrive: true,
+  suggestDriveSyncOnSensitiveSave: true,
   offlinePrivacyLock: true,
 };
 
@@ -256,7 +258,7 @@ export async function seedInitialOfflineDataIfEmpty(): Promise<void> {
     const initialThreads: LocalThread[] = [
       {
         id: 'thread_zapia_hub',
-        title: 'Assistente ZAPIA Multiplataforma',
+        title: 'Assistente ZAPIA MS Multiplataforma',
         colorHex: getThreadColorHex(0),
         glyphVariant: 0,
         unreadCount: 0,
@@ -370,7 +372,7 @@ export async function seedInitialOfflineDataIfEmpty(): Promise<void> {
     threadId: 'thread_zapia_hub',
     role: 'assistant',
     content:
-      'Olá, Moisés de Carvalho! Sou o ZAPIA, seu assistente pessoal multiplataforma. Estou pronto no Android, iOS e PC — tanto online com sincronização Google Drive, Gmail e Agenda, quanto 100% offline com criptografia AES-256-GCM. O que deseja organizar ou criar agora?',
+      'Olá, Moisés de Carvalho! Sou o ZAPIA MS, seu assistente pessoal multiplataforma. Estou pronto no Android, iOS e PC — tanto online com sincronização Google Drive, Gmail e Agenda, quanto 100% offline com criptografia AES-256-GCM. O que deseja organizar ou criar agora?',
     persona: 'amigo',
     voiceName: 'Fenrir',
     createdAtIso: now,

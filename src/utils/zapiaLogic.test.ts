@@ -26,6 +26,8 @@ import {
   validateExportPassphrase,
   analyzeSensitiveContent,
   summarizeSelfKnowledgeInsights,
+  analyzeSentiment,
+  buildWeeklySummary,
   DeviceSessionRecord,
 } from './zapiaLogic';
 
@@ -312,5 +314,84 @@ test('summarizeSelfKnowledgeInsights computes energy average, dominant mood, and
   assert.equal(populated.dominantMood, 'focado');
   assert.match(populated.summaryText, /Energia média 8\/10/);
 });
+
+test('analyzeSentiment detects positive, negative, negated, mixed, and neutral pt-BR text', () => {
+  const pos = analyzeSentiment('Estou muito feliz, motivado e produtivo com o ZAPIA MS hoje!');
+  assert.equal(pos.polarity, 'positivo');
+  assert.ok(pos.score > 0.3);
+
+  const neg = analyzeSentiment('Estou cansado, estressado e com muito problema atrasado.');
+  assert.equal(neg.polarity, 'negativo');
+  assert.ok(neg.score < -0.3);
+
+  const negatedPos = analyzeSentiment('Hoje não estou feliz e não consegui avançar.');
+  assert.equal(negatedPos.polarity, 'negativo');
+
+  const negatedNeg = analyzeSentiment('Sem medo e sem problema nenhum, sigo tranquilo.');
+  assert.equal(negatedNeg.polarity, 'positivo');
+
+  const neutral = analyzeSentiment('Abrir relatório financeiro às 14h na pasta documentos.');
+  assert.equal(neutral.polarity, 'neutro');
+  assert.equal(neutral.score, 0);
+});
+
+test('buildWeeklySummary aggregates last 7 days metrics and excludes older records', () => {
+  const nowIso = '2026-11-20T18:00:00.000Z';
+  const summary = buildWeeklySummary({
+    nowIso,
+    checkins: [
+      {
+        dateIso: '2026-11-20',
+        mood: 'motivado',
+        energy: 9,
+        focusGoal: 'Lançar ZAPIA MS',
+        reflection: 'Muito satisfeito e animado com a evolução!',
+        createdAtIso: '2026-11-20T10:00:00.000Z',
+      },
+      {
+        dateIso: '2026-11-18',
+        mood: 'focado',
+        energy: 7,
+        focusGoal: 'Revisar cofre',
+        reflection: 'Bom ritmo produtivo.',
+        createdAtIso: '2026-11-18T10:00:00.000Z',
+      },
+      {
+        dateIso: '2026-11-01', // older than 7 days -> must be ignored
+        mood: 'cansado',
+        energy: 2,
+        focusGoal: 'Antigo',
+        reflection: 'Exausto',
+        createdAtIso: '2026-11-01T10:00:00.000Z',
+      },
+    ],
+    messages: [
+      { role: 'user', content: 'Estou ótimo hoje, quero criar um app!', createdAtIso: '2026-11-19T12:00:00.000Z' },
+      { role: 'assistant', content: 'Vamos criar agora!', createdAtIso: '2026-11-19T12:01:00.000Z' },
+      { role: 'user', content: 'Mensagem antiga fora da semana', createdAtIso: '2026-11-05T12:00:00.000Z' },
+    ],
+    vaultItems: [
+      { scanStatus: 'limpo', createdAtIso: '2026-11-20T09:00:00.000Z' },
+      { scanStatus: 'limpo', createdAtIso: '2026-11-01T09:00:00.000Z' },
+    ],
+    reminders: [
+      { status: 'concluido', createdAtIso: '2026-11-19T08:00:00.000Z' },
+      { status: 'pendente', createdAtIso: '2026-11-20T08:00:00.000Z' },
+    ],
+    auditLogs: [{ verdict: 'alerta', createdAtIso: '2026-11-20T11:00:00.000Z' }],
+  });
+
+  assert.equal(summary.checkinCount, 2);
+  assert.equal(summary.averageEnergy, 8);
+  assert.equal(summary.userMessageCount, 1);
+  assert.equal(summary.assistantMessageCount, 1);
+  assert.equal(summary.vaultSavedCount, 1);
+  assert.equal(summary.completedReminders, 1);
+  assert.equal(summary.pendingReminders, 1);
+  assert.equal(summary.securityAlertsCount, 1);
+  assert.equal(summary.overallSentiment.polarity, 'positivo');
+  assert.match(summary.aiPrompt, /ZAPIA MS/);
+});
+
 
 
