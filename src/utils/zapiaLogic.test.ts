@@ -18,6 +18,15 @@ import {
   CONNECTOR_CATALOG,
   filterConnectorCatalog,
   validateSafeExternalUrl,
+  normalizeTrainedVoiceAnalysis,
+  buildTrainedVoiceStylePrompt,
+  detectDeviceMetadata,
+  formatE2EEFingerprint,
+  mergeDeviceSessions,
+  validateExportPassphrase,
+  analyzeSensitiveContent,
+  summarizeSelfKnowledgeInsights,
+  DeviceSessionRecord,
 } from './zapiaLogic';
 
 test('selectNextVoice alternates male and female voices in alternada mode', () => {
@@ -58,21 +67,48 @@ test('speedToPlaybackRate and toneToPitchRatio map 0-100 sliders cleanly', () =>
   assert.ok(VOICE_EFFECT_PRESETS.some((e) => e.id === 'robot'));
 });
 
+test('normalizeTrainedVoiceAnalysis clamps sliders and enforces valid base voice per gender', () => {
+  const fem = normalizeTrainedVoiceAnalysis({
+    profileName: 'Voz Clara',
+    gender: 'feminina',
+    recommendedBaseVoice: 'Fenrir', // mismatched male voice -> corrected to Kore
+    recommendedSpeed: 150,
+    recommendedPitch: -20,
+    recommendedWarmth: 85,
+    sampleCount: 3,
+  });
+  assert.equal(fem.baseModelId, 'Kore');
+  assert.equal(fem.recommendedSpeed, 100);
+  assert.equal(fem.recommendedPitch, 0);
+  assert.equal(fem.recommendedWarmth, 85);
+  assert.equal(fem.sampleCount, 3);
+
+  const styled = buildTrainedVoiceStylePrompt('tom natural', fem);
+  assert.match(styled, /Voz Clara/);
+});
+
 test('validateSafeExternalUrl blocks loopback/private metadata IPs and allows public APIs', () => {
   assert.equal(validateSafeExternalUrl('https://api.groq.com/openai/v1').valid, true);
   assert.equal(validateSafeExternalUrl('https://api.telegram.org').valid, true);
+  assert.equal(validateSafeExternalUrl('https://api.openai.com/v1').valid, true);
+  assert.equal(validateSafeExternalUrl('https://image.pollinations.ai').valid, true);
   assert.equal(validateSafeExternalUrl('http://127.0.0.1:8080').valid, false);
   assert.equal(validateSafeExternalUrl('http://169.254.169.254/latest/meta-data').valid, false);
   assert.equal(validateSafeExternalUrl('http://192.168.1.10').valid, false);
   assert.equal(validateSafeExternalUrl('ftp://example.com').valid, false);
 });
 
-test('filterConnectorCatalog searches social, apps, and free APIs', () => {
+test('filterConnectorCatalog searches social, apps, GPT, Gemini, Dola, Suno, and free media APIs', () => {
   const whats = filterConnectorCatalog(CONNECTOR_CATALOG, 'whats');
   assert.equal(whats.some((c) => c.id === 'whatsapp'), true);
 
   const freeApis = filterConnectorCatalog(CONNECTOR_CATALOG, 'groq');
   assert.equal(freeApis.some((c) => c.id === 'groq_free'), true);
+
+  for (const term of ['gpt', 'gemini', 'dola', 'suno', 'pexels', 'pixabay', 'pollinations']) {
+    const matches = filterConnectorCatalog(CONNECTOR_CATALOG, term);
+    assert.ok(matches.length > 0, `Expected catalog match for ${term}`);
+  }
 });
 
 test('scanFileContent quarantines disguised PE executables and script injection', () => {
@@ -152,3 +188,129 @@ test('buildThreadTitleFromMessage and generateProactiveRadarCards build clean dr
   assert.ok(cards.length >= 3);
   assert.equal(cards[0].id, 'radar_quarantine');
 });
+
+test('detectDeviceMetadata and formatE2EEFingerprint produce valid device descriptors', () => {
+  const androidMeta = detectDeviceMetadata('Mozilla/5.0 (Linux; Android 14) Chrome/126.0 Mobile');
+  assert.equal(androidMeta.platform, 'android');
+  assert.match(androidMeta.deviceName, /Android/);
+
+  const winMeta = detectDeviceMetadata('Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edg/126.0', 'Win32');
+  assert.equal(winMeta.platform, 'windows');
+  assert.match(winMeta.deviceName, /Windows/);
+
+  const fp = formatE2EEFingerprint('abcd1234ef567890abcd1234');
+  assert.equal(fp, 'ABCD:1234:EF56:7890');
+  assert.match(fp, /^[A-F0-9:]+$/);
+});
+
+test('mergeDeviceSessions pins current device and flags divergent E2EE fingerprints', () => {
+  const current: DeviceSessionRecord = {
+    id: 'dev_local',
+    ownerId: 'uid_1',
+    deviceName: 'PC Windows · Chrome',
+    platform: 'windows',
+    e2eeFingerprint: 'ABCD:1234:EF56:7890',
+    e2eeStatus: 'sincronizado',
+    syncedVaultCount: 4,
+    syncedRemindersCount: 2,
+    syncedPreferencesCount: 3,
+    lastSyncIso: '2026-11-20T12:00:00.000Z',
+    isCurrentDevice: true,
+  };
+  const cloud: DeviceSessionRecord[] = [
+    {
+      ...current,
+      lastSyncIso: '2026-11-20T10:00:00.000Z',
+      isCurrentDevice: false,
+    },
+    {
+      id: 'dev_mobile',
+      ownerId: 'uid_1',
+      deviceName: 'Smartphone Android · Chrome',
+      platform: 'android',
+      e2eeFingerprint: '9999:8888:7777:6666',
+      e2eeStatus: 'sincronizado',
+      syncedVaultCount: 3,
+      syncedRemindersCount: 2,
+      syncedPreferencesCount: 3,
+      lastSyncIso: '2026-11-20T11:30:00.000Z',
+    },
+  ];
+  const merged = mergeDeviceSessions(current, cloud);
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0].id, 'dev_local');
+  assert.equal(merged[0].isCurrentDevice, true);
+  assert.equal(merged[0].e2eeStatus, 'sincronizado');
+  assert.equal(merged[1].id, 'dev_mobile');
+  assert.equal(merged[1].e2eeStatus, 'chave_divergente');
+});
+
+test('validateExportPassphrase rejects short passwords and scores strong passwords', () => {
+  assert.equal(validateExportPassphrase('12345').valid, false);
+  assert.equal(validateExportPassphrase('       ').valid, false);
+  assert.equal(validateExportPassphrase('zapia123').valid, true);
+  assert.equal(validateExportPassphrase('Zapia@2026Seguro!').strength, 'forte');
+});
+
+test('analyzeSensitiveContent avoids false positives on normal conversation', () => {
+  const safe1 = analyzeSensitiveContent('Bom dia ZAPIA, me ajude a criar um jogo 2D em HTML5 Canvas hoje às 15h.');
+  assert.equal(safe1.hasSensitiveData, false);
+  assert.equal(safe1.riskLevel, 'nenhum');
+  assert.equal(safe1.findings.length, 0);
+
+  const safe2 = analyzeSensitiveContent('Como faço para recuperar minha senha de forma segura?');
+  assert.equal(safe2.hasSensitiveData, false);
+});
+
+test('analyzeSensitiveContent detects API keys, CPF, passwords, and Luhn credit cards with clean masking', () => {
+  const msg =
+    'Guarda isso: chave OpenAI sk-proj-AbCdEf123456789012345678, CPF 123.456.789-01, senha: MinhaSenha@99 e cartão 4532 0151 1283 0366';
+  const res = analyzeSensitiveContent(msg);
+  assert.equal(res.hasSensitiveData, true);
+  assert.equal(res.riskLevel, 'alto');
+  assert.ok(res.findings.some((f) => f.category === 'api_key'));
+  assert.ok(res.findings.some((f) => f.category === 'cpf'));
+  assert.ok(res.findings.some((f) => f.category === 'password'));
+  assert.ok(res.findings.some((f) => f.category === 'credit_card'));
+  assert.doesNotMatch(res.maskedText, /sk-proj-AbCdEf/);
+  assert.doesNotMatch(res.maskedText, /123\.456\.789-01/);
+  assert.doesNotMatch(res.maskedText, /MinhaSenha@99/);
+  assert.doesNotMatch(res.maskedText, /4532 0151 1283 0366/);
+  assert.match(res.maskedText, /\[CHAVE API PROTEGIDA\]/);
+  assert.match(res.maskedText, /\[CPF PROTEGIDO\]/);
+  assert.match(res.maskedText, /\[SENHA PROTEGIDA\]/);
+  assert.match(res.maskedText, /\[CARTÃO PROTEGIDO\]/);
+
+  const ptBrPass = analyzeSensitiveContent('Senha do banco: BancoZapia@2026');
+  assert.equal(ptBrPass.hasSensitiveData, true);
+  assert.match(ptBrPass.maskedText, /Senha do banco: \[SENHA PROTEGIDA\]/);
+});
+
+test('summarizeSelfKnowledgeInsights computes energy average, dominant mood, and coaching prompt', () => {
+  const empty = summarizeSelfKnowledgeInsights([]);
+  assert.equal(empty.totalCheckins, 0);
+  assert.match(empty.suggestedCoachPrompt, /autoconhecimento/i);
+
+  const populated = summarizeSelfKnowledgeInsights([
+    {
+      dateIso: '2026-11-20',
+      mood: 'focado',
+      energy: 9,
+      focusGoal: 'Finalizar painel E2EE do ZAPIA',
+      reflection: 'Produtividade alta pela manhã',
+    },
+    {
+      dateIso: '2026-11-19',
+      mood: 'focado',
+      energy: 7,
+      focusGoal: 'Revisar conectores de IA',
+      reflection: 'Bom progresso',
+    },
+  ]);
+  assert.equal(populated.totalCheckins, 2);
+  assert.equal(populated.averageEnergy, 8);
+  assert.equal(populated.dominantMood, 'focado');
+  assert.match(populated.summaryText, /Energia média 8\/10/);
+});
+
+

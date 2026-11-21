@@ -1,5 +1,7 @@
 import {
+  TrainedVoiceProfile,
   VoiceEffectId,
+  buildTrainedVoiceStylePrompt,
   buildVoiceStylePrompt,
   selectNextVoice,
   speedToPlaybackRate,
@@ -11,6 +13,7 @@ export interface SpeakOptions {
   text: string;
   turnIndex?: number;
   overrideVoiceName?: string;
+  overrideTrainedProfile?: TrainedVoiceProfile | null;
   settings: ZapiaSettingsState;
   isOnline: boolean;
   onStart?: (voiceLabel: string) => void;
@@ -123,27 +126,50 @@ class ZapiaSpeechController {
   public async speak(opts: SpeakOptions): Promise<void> {
     this.stop();
 
+    const trained =
+      opts.overrideTrainedProfile !== undefined
+        ? opts.overrideTrainedProfile
+        : opts.settings.trainedVoiceProfile;
+    const useTrained = Boolean(trained && (trained.active || opts.overrideTrainedProfile) && !opts.overrideVoiceName);
+
     const chosen = selectNextVoice(
       opts.settings.voiceGender,
       opts.turnIndex ?? 0,
       opts.settings.preferredMaleVoice,
       opts.settings.preferredFemaleVoice
     );
-    const activeVoiceName = opts.overrideVoiceName || chosen.voiceName;
-    const pitchVal = opts.settings.voicePitch ?? 50;
+    const activeVoiceName = opts.overrideVoiceName
+      ? opts.overrideVoiceName
+      : useTrained && trained
+        ? trained.baseModelId
+        : chosen.voiceName;
+    const pitchVal =
+      useTrained && trained ? trained.recommendedPitch : (opts.settings.voicePitch ?? 50);
+    const speedVal =
+      useTrained && trained ? trained.recommendedSpeed : opts.settings.speed;
+    const warmthVal =
+      useTrained && trained ? trained.recommendedWarmth : opts.settings.warmth;
+
     const effect: VoiceEffectId = opts.settings.voiceEffect || 'natural';
     const baseStyle = buildVoiceStylePrompt(
       opts.settings.persona,
-      opts.settings.warmth,
-      opts.settings.speed,
+      warmthVal,
+      speedVal,
       pitchVal
     );
+    const trainedStyle = useTrained && trained
+      ? buildTrainedVoiceStylePrompt(baseStyle, {
+          active: true,
+          name: trained.name,
+          vocalStylePrompt: trained.vocalStylePrompt,
+        })
+      : baseStyle;
     const style =
-      effect !== 'natural' ? `${baseStyle} Efeito vocal aplicado: ${effect}.` : baseStyle;
-    const playbackRate = speedToPlaybackRate(opts.settings.speed);
+      effect !== 'natural' ? `${trainedStyle} Efeito vocal aplicado: ${effect}.` : trainedStyle;
+    const playbackRate = speedToPlaybackRate(speedVal);
     const pitchRatio = toneToPitchRatio(pitchVal);
 
-    opts.onStart?.(activeVoiceName);
+    opts.onStart?.(useTrained && trained ? trained.name : activeVoiceName);
 
     const speakBrowserFallback = () => {
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {

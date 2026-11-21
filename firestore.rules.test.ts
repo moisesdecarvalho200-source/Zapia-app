@@ -20,3 +20,10 @@ test('firestore.rules enforces terminal state locking and immutable audit logs',
   assert.match(rulesContent, /match \/auditLogs\/\{logId\}[\s\S]*allow update: if false;/);
   assert.match(rulesContent, /match \/messages\/\{messageId\}[\s\S]*allow update: if false;/);
 });
+
+test('firestore.rules secures DeviceSession E2EE sync status and ownerId immutability', () => {
+  assert.match(rulesContent, /function isValidDeviceSession\(data, deviceId\)/);
+  assert.match(rulesContent, /match \/devices\/\{deviceId\}/);
+  assert.match(rulesContent, /data\.e2eeFingerprint\.matches\('\^\[A-F0-9:\]\+\$'\)/);
+});
+

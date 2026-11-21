@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -6,10 +6,13 @@ import {
   Cpu,
   CreditCard,
   ExternalLink,
+  Film,
   FlaskConical,
+  ImagePlus,
   KeyRound,
   Loader2,
   LogIn,
+  Music2,
   Plus,
   Search,
   ShieldCheck,
@@ -38,6 +41,8 @@ interface ConnectorsViewProps {
   accounts: LinkedAccountMeta[];
   activeEmail: string | null;
   hasGoogleToken: boolean;
+  initialCatalogId?: string | null;
+  onConsumeInitialCatalogId?: () => void;
   onSaveConnector: (connector: LocalConnector) => Promise<void>;
   onDeleteConnector: (id: string) => Promise<void>;
   onSetActiveAiConnector: (id: string | null) => Promise<void>;
@@ -46,6 +51,13 @@ interface ConnectorsViewProps {
   onAddGoogleAccount: (hint?: string) => Promise<void>;
   onOpenScheduleWorkspace: () => void;
   onOpenCodeStudio: () => void;
+  onImportMediaToGallery?: (item: {
+    id: string;
+    title: string;
+    kind: 'photo' | 'video';
+    mimeType: string;
+    dataUrl: string;
+  }) => Promise<void>;
 }
 
 interface EditorFormState {
@@ -65,7 +77,29 @@ interface EditorFormState {
   isActiveAiModel: boolean;
 }
 
+interface MediaSearchResultItem {
+  id: string;
+  title: string;
+  kind: 'photo' | 'video';
+  previewUrl: string;
+  fullUrl: string;
+  mimeType: string;
+  author: string;
+}
+
 const MAIS_APPS_IDS = ['whatsapp', 'outlook', 'notion', 'slack', 'ifood'] as const;
+const QUICK_MEDIA_AI_IDS = [
+  'openai_gpt',
+  'google_gemini',
+  'dola_ai',
+  'suno_ai',
+  'pollinations_media',
+  'pexels_media',
+  'pixabay_media',
+  'unsplash_media',
+] as const;
+
+type CatalogFilterCategory = 'all' | 'ai' | 'media' | 'apps';
 
 export const ConnectorsView: React.FC<ConnectorsViewProps> = ({
   connectors,
@@ -73,6 +107,8 @@ export const ConnectorsView: React.FC<ConnectorsViewProps> = ({
   accounts,
   activeEmail,
   hasGoogleToken,
+  initialCatalogId,
+  onConsumeInitialCatalogId,
   onSaveConnector,
   onDeleteConnector,
   onSetActiveAiConnector,
@@ -81,12 +117,22 @@ export const ConnectorsView: React.FC<ConnectorsViewProps> = ({
   onAddGoogleAccount,
   onOpenScheduleWorkspace,
   onOpenCodeStudio,
+  onImportMediaToGallery,
 }) => {
   const [subView, setSubView] = useState<'main' | 'catalog'>('main');
   const [searchQuery, setSearchQuery] = useState('');
+  const [catalogCategory, setCatalogCategory] = useState<CatalogFilterCategory>('all');
   const [editorOpen, setEditorOpen] = useState(false);
   const [cardModalOpen, setCardModalOpen] = useState(false);
   const [googleModalOpen, setGoogleModalOpen] = useState(false);
+
+  const [mediaProvider, setMediaProvider] = useState<'pollinations' | 'pexels' | 'pixabay' | 'unsplash'>('pollinations');
+  const [mediaKind, setMediaKind] = useState<'photo' | 'video'>('photo');
+  const [mediaQuery, setMediaQuery] = useState('');
+  const [isSearchingMedia, setIsSearchingMedia] = useState(false);
+  const [mediaError, setMediaError] = useState<string | null>(null);
+  const [mediaResults, setMediaResults] = useState<MediaSearchResultItem[]>([]);
+  const [savedMediaIds, setSavedMediaIds] = useState<Record<string, boolean>>({});
 
   const [form, setForm] = useState<EditorFormState>({
     name: '',
@@ -111,14 +157,25 @@ export const ConnectorsView: React.FC<ConnectorsViewProps> = ({
   const [cardBrand, setCardBrand] = useState('Mastercard');
   const [cardLast4, setCardLast4] = useState('');
 
-  const filteredCatalog = useMemo(
-    () => filterConnectorCatalog(CONNECTOR_CATALOG, searchQuery),
-    [searchQuery]
-  );
+  const filteredCatalog = useMemo(() => {
+    const byQuery = filterConnectorCatalog(CONNECTOR_CATALOG, searchQuery);
+    if (catalogCategory === 'all') return byQuery;
+    if (catalogCategory === 'ai') return byQuery.filter((i) => i.category === 'ia-free');
+    if (catalogCategory === 'media') return byQuery.filter((i) => i.category === 'fotos-videos');
+    return byQuery.filter((i) => i.category !== 'ia-free' && i.category !== 'fotos-videos');
+  }, [searchQuery, catalogCategory]);
 
   const quickMoreApps = useMemo(
     () =>
       MAIS_APPS_IDS.map((id) => CONNECTOR_CATALOG.find((c) => c.id === id)).filter(
+        (x): x is ConnectorCatalogItem => Boolean(x)
+      ),
+    []
+  );
+
+  const quickAiMediaApps = useMemo(
+    () =>
+      QUICK_MEDIA_AI_IDS.map((id) => CONNECTOR_CATALOG.find((c) => c.id === id)).filter(
         (x): x is ConnectorCatalogItem => Boolean(x)
       ),
     []
@@ -134,11 +191,15 @@ export const ConnectorsView: React.FC<ConnectorsViewProps> = ({
     const providerKind: ApiProviderKind =
       item.id === 'telegram'
         ? 'telegram-bot'
-        : item.id === 'huggingface_free'
-          ? 'huggingface'
-          : isApiFree
-            ? 'openai-compatible'
-            : 'app-credentials';
+        : item.id === 'google_gemini'
+          ? 'gemini'
+          : item.id === 'huggingface_free'
+            ? 'huggingface'
+            : item.category === 'fotos-videos'
+              ? 'media-api'
+              : isApiFree
+                ? 'openai-compatible'
+                : 'app-credentials';
 
     setForm({
       name: item.name,
@@ -153,11 +214,20 @@ export const ConnectorsView: React.FC<ConnectorsViewProps> = ({
       accountLabel: item.placeholderHandle || '',
       secret: '',
       isCustom: false,
-      isActiveAiModel: isApiFree,
+      isActiveAiModel: isApiFree && item.category === 'ia-free',
     });
     setTestResult(null);
     setEditorOpen(true);
   };
+
+  useEffect(() => {
+    if (!initialCatalogId) return;
+    const item = CONNECTOR_CATALOG.find((c) => c.id === initialCatalogId);
+    if (item) {
+      openEditorFromCatalog(item);
+    }
+    onConsumeInitialCatalogId?.();
+  }, [initialCatalogId]);
 
   const openCustomEditor = (defaultMode: 'api-free' | 'app-login' = 'api-free') => {
     setForm({
@@ -192,6 +262,7 @@ export const ConnectorsView: React.FC<ConnectorsViewProps> = ({
       conn.providerKind === 'openai-compatible' ||
       conn.providerKind === 'gemini' ||
       conn.providerKind === 'huggingface' ||
+      conn.providerKind === 'media-api' ||
       conn.providerKind === 'webhook';
 
     setForm({
@@ -284,8 +355,16 @@ export const ConnectorsView: React.FC<ConnectorsViewProps> = ({
         encryptedSecret,
         secretIv,
         isCustom: form.isCustom,
-        isActiveAiModel: form.mode === 'api-free' ? form.isActiveAiModel : false,
-        connected: Boolean(form.secret.trim() || form.accountLabel.trim() || testResult?.ok),
+        isActiveAiModel:
+          form.mode === 'api-free' && form.providerKind !== 'media-api'
+            ? form.isActiveAiModel
+            : false,
+        connected: Boolean(
+          form.secret.trim() ||
+            form.accountLabel.trim() ||
+            form.catalogId === 'pollinations_media' ||
+            testResult?.ok
+        ),
         lastTestStatus: testResult ? (testResult.ok ? 'ok' : 'erro') : 'pendente',
         lastTestMessage: testResult?.message,
         updatedAtIso: new Date().toISOString(),
@@ -322,6 +401,61 @@ export const ConnectorsView: React.FC<ConnectorsViewProps> = ({
   const googleAccountCountText = `${Math.max(1, accounts.length)} ${
     accounts.length <= 1 ? 'conta' : 'contas'
   }`;
+
+  const handleRunFreeMediaSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mediaQuery.trim()) {
+      setMediaError('Digite um assunto ou prompt para buscar fotos/vídeos.');
+      return;
+    }
+    setMediaError(null);
+    setIsSearchingMedia(true);
+    try {
+      let secret = '';
+      if (mediaProvider !== 'pollinations') {
+        const targetCatalogId = `${mediaProvider}_media`;
+        const conn = connectors.find((c) => c.catalogId === targetCatalogId);
+        if (conn?.encryptedSecret && conn.secretIv) {
+          const bytes = await decryptBytesE2EE(conn.encryptedSecret, conn.secretIv);
+          secret = new TextDecoder().decode(bytes);
+        }
+        if (!secret) {
+          const item = CONNECTOR_CATALOG.find((c) => c.id === targetCatalogId);
+          setMediaError(
+            `Conecte primeiro sua chave gratuita de ${item?.name || mediaProvider} clicando no card acima.`
+          );
+          setIsSearchingMedia(false);
+          return;
+        }
+      }
+
+      const res = await fetch('/api/connectors/media-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: mediaProvider,
+          query: mediaQuery.trim(),
+          mediaType: mediaProvider === 'pollinations' || mediaProvider === 'unsplash' ? 'photo' : mediaKind,
+          secret,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        items?: MediaSearchResultItem[];
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao consultar API de mídia.');
+      }
+      setMediaResults(data.items || []);
+      if ((data.items || []).length === 0) {
+        setMediaError('Nenhum resultado retornado para essa busca.');
+      }
+    } catch (err: unknown) {
+      setMediaError(err instanceof Error ? err.message : 'Falha na busca gratuita.');
+    } finally {
+      setIsSearchingMedia(false);
+    }
+  };
 
   return (
     <div className="max-w-3xl mx-auto w-full space-y-6">
@@ -554,6 +688,191 @@ export const ConnectorsView: React.FC<ConnectorsViewProps> = ({
             ))}
           </section>
 
+          {/* IA, Música & Fotos/Vídeos Grátis (GPT, Gemini, Dola, Suno, Pollinations, Pexels, Pixabay, Unsplash) */}
+          <section className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Film className="w-4 h-4 text-[var(--zapia-accent)]" />
+                <h2 className="text-sm font-semibold text-[var(--zapia-text)]">
+                  GPT, Gemini, Dola, Suno & Fotos/Vídeos Grátis
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCatalogCategory('media');
+                  setSubView('catalog');
+                }}
+                className="text-xs font-medium text-[var(--zapia-accent)] hover:underline"
+              >
+                Ver todas as APIs de mídia
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              {quickAiMediaApps.map((app) => {
+                const isConnected = connectors.some(
+                  (c) => (c.catalogId === app.id || c.name === app.name) && c.connected
+                );
+                return (
+                  <button
+                    key={app.id}
+                    type="button"
+                    onClick={() => openEditorFromCatalog(app)}
+                    className="rounded-2xl border border-[var(--zapia-border)] bg-[var(--zapia-surface)] hover:border-[var(--zapia-accent)] p-3 flex items-center gap-2.5 text-left transition-colors"
+                  >
+                    <span
+                      className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-[11px] shrink-0"
+                      style={{ backgroundColor: app.brandColor }}
+                    >
+                      {app.shortGlyph}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-[var(--zapia-text)] truncate">
+                        {app.name.split(' (')[0]}
+                      </div>
+                      <div className="text-[10px] text-[var(--zapia-muted)] truncate">
+                        {isConnected
+                          ? 'Conectado'
+                          : app.id === 'suno_ai'
+                            ? 'Música grátis'
+                            : app.category === 'fotos-videos'
+                              ? 'API Fotos/Vídeos'
+                              : 'Conectar API'}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Interactive Live Search/Generate Free Photos & Videos Bar */}
+            <form
+              onSubmit={handleRunFreeMediaSearch}
+              className="rounded-2xl border border-[var(--zapia-border)] bg-[var(--zapia-surface)] p-4 space-y-3"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-[var(--zapia-text)]">
+                  <ImagePlus className="w-4 h-4 text-emerald-400" />
+                  <span>Buscar / Gerar Fotos e Vídeos Grátis (Salvar na Galeria ZAPIA)</span>
+                </div>
+                <span className="inline-flex items-center gap-1 text-[11px] text-emerald-400">
+                  <Music2 className="w-3 h-3" />
+                  <span>Pollinations grátis sem chave</span>
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                <select
+                  aria-label="Provedor gratuito de fotos e vídeos"
+                  value={mediaProvider}
+                  onChange={(e) =>
+                    setMediaProvider(
+                      e.target.value as 'pollinations' | 'pexels' | 'pixabay' | 'unsplash'
+                    )
+                  }
+                  className="sm:col-span-4 px-3 py-2 rounded-xl border border-[var(--zapia-border)] bg-[var(--zapia-bg)] text-xs text-[var(--zapia-text)]"
+                >
+                  <option value="pollinations">Pollinations IA (Grátis)</option>
+                  <option value="pexels">Pexels (Fotos/Vídeos)</option>
+                  <option value="pixabay">Pixabay (Fotos/Vídeos)</option>
+                  <option value="unsplash">Unsplash (Fotos HD)</option>
+                </select>
+
+                {(mediaProvider === 'pexels' || mediaProvider === 'pixabay') && (
+                  <select
+                    aria-label="Tipo de mídia"
+                    value={mediaKind}
+                    onChange={(e) => setMediaKind(e.target.value as 'photo' | 'video')}
+                    className="sm:col-span-2 px-3 py-2 rounded-xl border border-[var(--zapia-border)] bg-[var(--zapia-bg)] text-xs text-[var(--zapia-text)]"
+                  >
+                    <option value="photo">Fotos</option>
+                    <option value="video">Vídeos</option>
+                  </select>
+                )}
+
+                <input
+                  type="text"
+                  value={mediaQuery}
+                  onChange={(e) => setMediaQuery(e.target.value)}
+                  placeholder="Ex: pôr do sol futurista, praia HD, setup gamer..."
+                  aria-label="Tema da foto ou vídeo gratuito"
+                  className={`${
+                    mediaProvider === 'pexels' || mediaProvider === 'pixabay'
+                      ? 'sm:col-span-3'
+                      : 'sm:col-span-5'
+                  } px-3.5 py-2 rounded-xl border border-[var(--zapia-border)] bg-[var(--zapia-bg)] text-xs text-[var(--zapia-text)]`}
+                />
+
+                <button
+                  type="submit"
+                  disabled={isSearchingMedia}
+                  className="sm:col-span-3 py-2 px-4 rounded-full bg-white text-[#111113] text-xs font-semibold inline-flex items-center justify-center gap-1.5 hover:bg-neutral-200"
+                >
+                  {isSearchingMedia ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Search className="w-3.5 h-3.5" />
+                  )}
+                  <span>{isSearchingMedia ? 'Buscando...' : 'Buscar / Gerar'}</span>
+                </button>
+              </div>
+
+              {mediaError && (
+                <div role="alert" className="text-xs text-amber-300 flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{mediaError}</span>
+                </div>
+              )}
+
+              {mediaResults.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  {mediaResults.map((resItem) => (
+                    <div
+                      key={resItem.id}
+                      className="rounded-2xl border border-[var(--zapia-border)] bg-[var(--zapia-bg)] overflow-hidden flex flex-col"
+                    >
+                      <img
+                        src={resItem.previewUrl}
+                        alt={resItem.title}
+                        className="w-full h-36 object-cover bg-black/40"
+                      />
+                      <div className="p-3 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold text-[var(--zapia-text)] truncate">
+                            {resItem.title}
+                          </div>
+                          <div className="text-[10px] text-[var(--zapia-muted)] truncate">
+                            {resItem.author} · {resItem.kind === 'video' ? 'Vídeo' : 'Foto'}
+                          </div>
+                        </div>
+                        {onImportMediaToGallery && (
+                          <button
+                            type="button"
+                            disabled={savedMediaIds[resItem.id]}
+                            onClick={async () => {
+                              await onImportMediaToGallery({
+                                id: resItem.id,
+                                title: resItem.title,
+                                kind: resItem.kind,
+                                mimeType: resItem.mimeType,
+                                dataUrl: resItem.fullUrl,
+                              });
+                              setSavedMediaIds((prev) => ({ ...prev, [resItem.id]: true }));
+                            }}
+                            className="px-3 py-1.5 rounded-full bg-white text-[#111113] text-[11px] font-semibold shrink-0 disabled:opacity-60"
+                          >
+                            {savedMediaIds[resItem.id] ? 'Salvo!' : 'Salvar Galeria'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </form>
+          </section>
+
           {/* "Mais apps" 3x2 Grid (Screenshot 4) */}
           <section className="space-y-3">
             <div className="flex items-center justify-between">
@@ -589,7 +908,10 @@ export const ConnectorsView: React.FC<ConnectorsViewProps> = ({
 
               <button
                 type="button"
-                onClick={() => setSubView('catalog')}
+                onClick={() => {
+                  setCatalogCategory('all');
+                  setSubView('catalog');
+                }}
                 className="rounded-2xl border border-[var(--zapia-border)] bg-[var(--zapia-surface)] hover:border-[var(--zapia-accent)] p-4 flex flex-col items-center justify-center gap-2.5 transition-colors"
               >
                 <span className="w-11 h-11 rounded-xl bg-[var(--zapia-surface-alt)] border border-[var(--zapia-border)] flex items-center justify-center text-[var(--zapia-text)]">
@@ -629,9 +951,32 @@ export const ConnectorsView: React.FC<ConnectorsViewProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Busque apps ou digite qualquer serviço / API Free..."
+              placeholder="Busque GPT, Gemini, Dola, Suno, Pexels, WhatsApp ou qualquer API..."
               className="w-full pl-11 pr-4 py-3 rounded-full bg-[var(--zapia-surface)] border border-[var(--zapia-border)] text-sm text-[var(--zapia-text)] placeholder:text-[var(--zapia-muted)]"
             />
+          </div>
+
+          {/* Category Filter Chips */}
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: 'all', label: 'Todos' },
+              { id: 'ai', label: 'IA: GPT, Gemini & Dola' },
+              { id: 'media', label: 'Fotos, Vídeos & Suno' },
+              { id: 'apps', label: 'Redes & Apps' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setCatalogCategory(tab.id as CatalogFilterCategory)}
+                className={`px-3.5 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                  catalogCategory === tab.id
+                    ? 'bg-white text-[#111113] border-white'
+                    : 'bg-[var(--zapia-surface)] text-[var(--zapia-muted)] border-[var(--zapia-border)] hover:text-[var(--zapia-text)]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
 
           <div className="space-y-3">
@@ -833,13 +1178,16 @@ export const ConnectorsView: React.FC<ConnectorsViewProps> = ({
                                 ? 'https://generativelanguage.googleapis.com/v1beta'
                                 : kind === 'huggingface'
                                   ? 'https://router.huggingface.co/v1'
-                                  : f.baseUrl || 'https://api.groq.com/openai/v1',
+                                  : kind === 'media-api'
+                                    ? f.baseUrl || 'https://image.pollinations.ai'
+                                    : f.baseUrl || 'https://api.openai.com/v1',
                           }));
                         }}
                         className="w-full px-3 py-2.5 rounded-xl border border-[var(--zapia-border)] bg-[var(--zapia-surface)] text-xs text-[var(--zapia-text)]"
                       >
-                        <option value="openai-compatible">OpenAI-Compatível (Groq / OpenRouter / Mistral)</option>
+                        <option value="openai-compatible">OpenAI (GPT) / Groq / OpenRouter</option>
                         <option value="gemini">Google Gemini / AI Studio</option>
+                        <option value="media-api">Fotos / Vídeos / Música Grátis (Suno / Pexels / Pollinations)</option>
                         <option value="huggingface">Hugging Face Inference</option>
                         <option value="webhook">Endpoint REST / Webhook</option>
                       </select>
@@ -921,14 +1269,14 @@ export const ConnectorsView: React.FC<ConnectorsViewProps> = ({
                 />
               </div>
 
-              {form.mode === 'api-free' && (
+              {form.mode === 'api-free' && form.providerKind !== 'media-api' && (
                 <label className="flex items-center justify-between gap-3 p-3 rounded-xl border border-[var(--zapia-border)] bg-[var(--zapia-surface)] cursor-pointer">
                   <div className="text-xs">
                     <div className="font-semibold text-[var(--zapia-text)]">
                       Ativar este modelo no Chat ZAPIA
                     </div>
                     <div className="text-[var(--zapia-muted)]">
-                      As conversas usarão esta API Free configurada.
+                      As conversas usarão esta API configurada (GPT, Gemini, Groq...).
                     </div>
                   </div>
                   <input

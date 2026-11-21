@@ -470,6 +470,7 @@ export type ApiProviderKind =
   | 'openai-compatible'
   | 'gemini'
   | 'huggingface'
+  | 'media-api'
   | 'telegram-bot'
   | 'app-credentials'
   | 'webhook';
@@ -478,7 +479,7 @@ export interface ConnectorCatalogItem {
   id: string;
   name: string;
   description: string;
-  category: 'mensagens' | 'redes' | 'produtividade' | 'ia-free' | 'dev-jogos' | 'servicos';
+  category: 'mensagens' | 'redes' | 'produtividade' | 'ia-free' | 'fotos-videos' | 'dev-jogos' | 'servicos';
   brandColor: string;
   shortGlyph: string;
   authMode: 'oauth-google' | 'token-or-login' | 'api-free';
@@ -488,6 +489,116 @@ export interface ConnectorCatalogItem {
 }
 
 export const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
+  {
+    id: 'openai_gpt',
+    name: 'ChatGPT / OpenAI (GPT)',
+    description: 'Conecte modelos GPT (gpt-4o-mini, gpt-4.1-mini, o3-mini) direto no ZAPIA.',
+    category: 'ia-free',
+    brandColor: '#10A37F',
+    shortGlyph: 'GPT',
+    authMode: 'api-free',
+    defaultBaseUrl: 'https://api.openai.com/v1',
+    defaultModel: 'gpt-4o-mini',
+  },
+  {
+    id: 'google_gemini',
+    name: 'Google Gemini API',
+    description: 'Conecte sua chave externa Google AI Studio (gemini-2.5-flash) além do motor nativo.',
+    category: 'ia-free',
+    brandColor: '#1A73E8',
+    shortGlyph: 'GM',
+    authMode: 'api-free',
+    defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    defaultModel: 'gemini-2.5-flash',
+  },
+  {
+    id: 'dola_ai',
+    name: 'Dola AI (Assistente & Rotinas)',
+    description: 'Conecte sua conta, token ou webhook Dola AI para cruzar notas e lembretes.',
+    category: 'ia-free',
+    brandColor: '#5B6CFF',
+    shortGlyph: 'DL',
+    authMode: 'token-or-login',
+    defaultBaseUrl: 'https://www.dola.com',
+    placeholderHandle: 'Conta ou Token Dola AI',
+  },
+  {
+    id: 'suno_ai',
+    name: 'Suno AI (Música & Áudio Grátis)',
+    description: 'Conecte API compatível Suno para gerar trilhas musicais e vocais gratuitos.',
+    category: 'fotos-videos',
+    brandColor: '#EA580C',
+    shortGlyph: 'SN',
+    authMode: 'api-free',
+    defaultBaseUrl: 'https://studio-api.prod.suno.com/api',
+    defaultModel: 'chirp-v3-5',
+  },
+  {
+    id: 'pollinations_media',
+    name: 'Pollinations.ai (Fotos IA Grátis sem Chave)',
+    description: 'Gere fotos e ilustrações em HD grátis na hora sem precisar de chave API.',
+    category: 'fotos-videos',
+    brandColor: '#7C3AED',
+    shortGlyph: 'PL',
+    authMode: 'api-free',
+    defaultBaseUrl: 'https://image.pollinations.ai',
+    defaultModel: 'flux',
+  },
+  {
+    id: 'pexels_media',
+    name: 'Pexels (Fotos e Vídeos HD Grátis API)',
+    description: 'Busque e importe fotos e vídeos 4K/HD gratuitos para sua Galeria ZAPIA.',
+    category: 'fotos-videos',
+    brandColor: '#05A081',
+    shortGlyph: 'PX',
+    authMode: 'api-free',
+    defaultBaseUrl: 'https://api.pexels.com/v1',
+    defaultModel: 'photos-videos-hd',
+  },
+  {
+    id: 'pixabay_media',
+    name: 'Pixabay (Fotos e Vídeos Grátis API)',
+    description: 'Banco gratuito de fotos, vetores e vídeos livres para projetos e redes.',
+    category: 'fotos-videos',
+    brandColor: '#2EC66D',
+    shortGlyph: 'PB',
+    authMode: 'api-free',
+    defaultBaseUrl: 'https://pixabay.com/api/',
+    defaultModel: 'photo-video-free',
+  },
+  {
+    id: 'unsplash_media',
+    name: 'Unsplash (Fotos Alta Resolução Grátis API)',
+    description: 'Fotografias profissionais gratuitas prontas para usar no Estúdio ZAPIA.',
+    category: 'fotos-videos',
+    brandColor: '#111111',
+    shortGlyph: 'US',
+    authMode: 'api-free',
+    defaultBaseUrl: 'https://api.unsplash.com',
+    defaultModel: 'photos-hd',
+  },
+  {
+    id: 'luma_video',
+    name: 'Luma Dream Machine (Vídeos IA API)',
+    description: 'Conecte geração de vídeos cinematográficos via Luma Labs API.',
+    category: 'fotos-videos',
+    brandColor: '#0EA5E9',
+    shortGlyph: 'LM',
+    authMode: 'api-free',
+    defaultBaseUrl: 'https://api.lumalabs.ai/dream-machine/v1',
+    defaultModel: 'ray-2',
+  },
+  {
+    id: 'fal_media',
+    name: 'Fal.ai Free Tier (Imagens & Vídeos IA)',
+    description: 'Inferência rápida para Flux, vídeos curtos e mídia criativa com free tier.',
+    category: 'fotos-videos',
+    brandColor: '#8B5CF6',
+    shortGlyph: 'FL',
+    authMode: 'api-free',
+    defaultBaseUrl: 'https://queue.fal.run',
+    defaultModel: 'fal-ai/flux/schnell',
+  },
   {
     id: 'whatsapp',
     name: 'WhatsApp',
@@ -651,7 +762,8 @@ export function filterConnectorCatalog(
     (item) =>
       item.name.toLowerCase().includes(q) ||
       item.description.toLowerCase().includes(q) ||
-      item.category.toLowerCase().includes(q)
+      item.category.toLowerCase().includes(q) ||
+      item.id.toLowerCase().includes(q)
   );
 }
 
@@ -693,4 +805,682 @@ export function validateSafeExternalUrl(rawUrl: string): { valid: boolean; url?:
   }
 }
 
+export interface VoiceSampleItem {
+  id: string;
+  title: string;
+  mimeType: string;
+  sizeBytes: number;
+  durationSec: number;
+  dataUrl: string;
+  createdAtIso: string;
+}
+
+export interface TrainedVoiceProfile {
+  id: string;
+  name: string;
+  baseModelId: string;
+  gender: 'masculina' | 'feminina';
+  vocalStylePrompt: string;
+  recommendedSpeed: number;
+  recommendedPitch: number;
+  recommendedWarmth: number;
+  timbreNotes: string;
+  sampleCount: number;
+  trainedAtIso: string;
+  active: boolean;
+}
+
+function clampSlider(val: unknown, fallback: number): number {
+  const n = typeof val === 'number' && Number.isFinite(val) ? val : fallback;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+export function normalizeTrainedVoiceAnalysis(input: {
+  id?: string;
+  profileName: string;
+  gender?: string;
+  recommendedBaseVoice?: string;
+  recommendedSpeed?: number;
+  recommendedPitch?: number;
+  recommendedWarmth?: number;
+  vocalStylePrompt?: string;
+  timbreNotes?: string;
+  sampleCount?: number;
+}): TrainedVoiceProfile {
+  const cleanName = (input.profileName || '').trim() || 'Voz Personalizada ZAPIA';
+  const isFemale = input.gender === 'feminina';
+  const validGender: 'masculina' | 'feminina' = isFemale ? 'feminina' : 'masculina';
+
+  const allAllowed = [...MALE_VOICES, ...FEMALE_VOICES] as readonly string[];
+  const requestedVoice = (input.recommendedBaseVoice || '').trim();
+  let baseModelId = allAllowed.includes(requestedVoice)
+    ? requestedVoice
+    : isFemale
+      ? 'Kore'
+      : 'Fenrir';
+
+  if (validGender === 'feminina' && !(FEMALE_VOICES as readonly string[]).includes(baseModelId)) {
+    baseModelId = 'Kore';
+  } else if (validGender === 'masculina' && !(MALE_VOICES as readonly string[]).includes(baseModelId)) {
+    baseModelId = 'Fenrir';
+  }
+
+  return {
+    id: input.id || sanitizeFirestoreId(`voice_prof_${cleanName}_${Date.now()}`),
+    name: cleanName.slice(0, 60),
+    baseModelId,
+    gender: validGender,
+    vocalStylePrompt:
+      (input.vocalStylePrompt || '').trim() ||
+      'Natural Brazilian Portuguese conversational timbre calibrated to user voice sample',
+    recommendedSpeed: clampSlider(input.recommendedSpeed, 48),
+    recommendedPitch: clampSlider(input.recommendedPitch, 50),
+    recommendedWarmth: clampSlider(input.recommendedWarmth, 72),
+    timbreNotes:
+      (input.timbreNotes || '').trim() ||
+      'Perfil acústico calibrado a partir das amostras enviadas pelo usuário.',
+    sampleCount: Math.max(1, Number(input.sampleCount || 1)),
+    trainedAtIso: new Date().toISOString(),
+    active: true,
+  };
+}
+
+export function buildTrainedVoiceStylePrompt(
+  baseStyle: string,
+  trained?: Pick<TrainedVoiceProfile, 'active' | 'name' | 'vocalStylePrompt'> | null
+): string {
+  if (!trained || !trained.active || !trained.vocalStylePrompt.trim()) {
+    return baseStyle;
+  }
+  return `Emular a voz treinada "${trained.name}": ${trained.vocalStylePrompt}. Complemento atual: ${baseStyle}`;
+}
+
+export type DevicePlatform = 'android' | 'ios' | 'windows' | 'macos' | 'linux' | 'web';
+export type DeviceE2EEStatus =
+  | 'sincronizado'
+  | 'sincronizando'
+  | 'pendente_offline'
+  | 'chave_divergente';
+
+export interface DeviceSessionRecord {
+  id: string;
+  ownerId: string;
+  deviceName: string;
+  platform: DevicePlatform;
+  e2eeFingerprint: string;
+  e2eeStatus: DeviceE2EEStatus;
+  syncedVaultCount: number;
+  syncedRemindersCount: number;
+  syncedPreferencesCount: number;
+  lastSyncIso: string;
+  isCurrentDevice?: boolean;
+  createdAtIso?: string;
+  updatedAtIso?: string;
+}
+
+export interface EncryptedExportEnvelope {
+  format: 'zapia-e2ee-backup-v1';
+  exportedAtIso: string;
+  ownerEmail: string;
+  deviceId: string;
+  e2eeFingerprint: string;
+  kdf: 'PBKDF2-SHA256-120000';
+  cipher: 'AES-256-GCM';
+  saltBase64: string;
+  ivBase64: string;
+  ciphertextBase64: string;
+  payloadSha256: string;
+  summary: {
+    vaultCount: number;
+    galleryCount: number;
+    remindersCount: number;
+    preferencesCount: number;
+    connectorsCount: number;
+  };
+}
+
+export function detectDeviceMetadata(
+  userAgent: string = '',
+  platformStr: string = ''
+): { platform: DevicePlatform; deviceName: string } {
+  const ua = (userAgent || '').toLowerCase();
+  const plat = (platformStr || '').toLowerCase();
+
+  let platform: DevicePlatform = 'web';
+  let osLabel = 'Navegador Web';
+
+  if (/android/.test(ua)) {
+    platform = 'android';
+    osLabel = 'Smartphone Android';
+  } else if (/iphone|ipad|ipod/.test(ua)) {
+    platform = 'ios';
+    osLabel = /ipad/.test(ua) ? 'iPad (iOS)' : 'iPhone (iOS)';
+  } else if (/win/.test(plat) || /windows/.test(ua)) {
+    platform = 'windows';
+    osLabel = 'PC Windows';
+  } else if (/mac/.test(plat) || /macintosh|mac os/.test(ua)) {
+    platform = 'macos';
+    osLabel = 'Mac (macOS)';
+  } else if (/linux/.test(plat) || /linux/.test(ua)) {
+    platform = 'linux';
+    osLabel = 'Desktop Linux';
+  }
+
+  let browserLabel = 'PWA';
+  if (/edg\//.test(ua)) {
+    browserLabel = 'Edge';
+  } else if (/chrome|crios/.test(ua) && !/edg\//.test(ua)) {
+    browserLabel = 'Chrome';
+  } else if (/firefox|fxios/.test(ua)) {
+    browserLabel = 'Firefox';
+  } else if (/safari/.test(ua) && !/chrome|crios/.test(ua)) {
+    browserLabel = 'Safari';
+  }
+
+  return {
+    platform,
+    deviceName: `${osLabel} · ${browserLabel}`.slice(0, 120),
+  };
+}
+
+export function formatE2EEFingerprint(sha256Hex: string): string {
+  const cleaned = (sha256Hex || '')
+    .toUpperCase()
+    .replace(/[^A-F0-9]/g, '')
+    .padEnd(16, '0')
+    .slice(0, 16);
+  return `${cleaned.slice(0, 4)}:${cleaned.slice(4, 8)}:${cleaned.slice(8, 12)}:${cleaned.slice(12, 16)}`;
+}
+
+export function mergeDeviceSessions(
+  localCurrent: DeviceSessionRecord,
+  cloudDevices: DeviceSessionRecord[]
+): DeviceSessionRecord[] {
+  const map = new Map<string, DeviceSessionRecord>();
+  map.set(localCurrent.id, { ...localCurrent, isCurrentDevice: true });
+
+  for (const remote of cloudDevices) {
+    if (!remote?.id) continue;
+    const isCurrent = remote.id === localCurrent.id;
+    const hasDivergentKey =
+      !isCurrent &&
+      Boolean(remote.e2eeFingerprint) &&
+      Boolean(localCurrent.e2eeFingerprint) &&
+      remote.e2eeFingerprint !== localCurrent.e2eeFingerprint;
+
+    if (isCurrent) {
+      map.set(remote.id, {
+        ...remote,
+        ...localCurrent,
+        lastSyncIso:
+          localCurrent.lastSyncIso >= remote.lastSyncIso
+            ? localCurrent.lastSyncIso
+            : remote.lastSyncIso,
+        isCurrentDevice: true,
+      });
+    } else {
+      map.set(remote.id, {
+        ...remote,
+        e2eeStatus: hasDivergentKey ? 'chave_divergente' : remote.e2eeStatus,
+        isCurrentDevice: false,
+      });
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => {
+    if (a.isCurrentDevice && !b.isCurrentDevice) return -1;
+    if (!a.isCurrentDevice && b.isCurrentDevice) return 1;
+    return (b.lastSyncIso || '').localeCompare(a.lastSyncIso || '');
+  });
+}
+
+export function validateExportPassphrase(passphrase: string): {
+  valid: boolean;
+  reason?: string;
+  strength: 'fraca' | 'media' | 'forte';
+} {
+  const raw = passphrase || '';
+  if (raw.trim().length < 8) {
+    return {
+      valid: false,
+      reason: 'A senha de exportação precisa ter pelo menos 8 caracteres.',
+      strength: 'fraca',
+    };
+  }
+  const hasUpper = /[A-Z]/.test(raw);
+  const hasLower = /[a-z]/.test(raw);
+  const hasDigit = /\d/.test(raw);
+  const hasSymbol = /[^A-Za-z0-9\s]/.test(raw);
+  const score = [hasUpper, hasLower, hasDigit, hasSymbol].filter(Boolean).length;
+
+  if (raw.length >= 12 && score >= 3) {
+    return { valid: true, strength: 'forte' };
+  }
+  return { valid: true, strength: 'media' };
+}
+
+export type SensitiveCategory =
+  | 'api_key'
+  | 'private_key'
+  | 'password'
+  | 'cpf'
+  | 'cnpj'
+  | 'credit_card'
+  | 'cvv'
+  | 'bank_pix'
+  | 'rg'
+  | 'seed_phrase';
+
+export interface SensitiveFinding {
+  category: SensitiveCategory;
+  label: string;
+  severity: 'medio' | 'alto';
+  previewMasked: string;
+  replacementTag: string;
+}
+
+export interface SensitiveContentAnalysis {
+  hasSensitiveData: boolean;
+  riskLevel: 'nenhum' | 'medio' | 'alto';
+  findings: SensitiveFinding[];
+  maskedText: string;
+  suggestedTitle: string;
+}
+
+function passesLuhnCheck(digitsOnly: string): boolean {
+  if (digitsOnly.length < 13 || digitsOnly.length > 19) return false;
+  if (/^(\d)\1+$/.test(digitsOnly)) return false;
+  let sum = 0;
+  let shouldDouble = false;
+  for (let i = digitsOnly.length - 1; i >= 0; i--) {
+    let digit = digitsOnly.charCodeAt(i) - 48;
+    if (digit < 0 || digit > 9) return false;
+    if (shouldDouble) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    sum += digit;
+    shouldDouble = !shouldDouble;
+  }
+  return sum % 10 === 0;
+}
+
+function maskPreviewString(raw: string): string {
+  const clean = raw.trim();
+  if (clean.length <= 6) return '••••••';
+  return `${clean.slice(0, 4)}••••${clean.slice(-3)}`;
+}
+
+interface MatchSpan {
+  start: number;
+  end: number;
+  finding: SensitiveFinding;
+}
+
+export function analyzeSensitiveContent(text: string): SensitiveContentAnalysis {
+  const raw = text || '';
+  if (!raw.trim()) {
+    return {
+      hasSensitiveData: false,
+      riskLevel: 'nenhum',
+      findings: [],
+      maskedText: raw,
+      suggestedTitle: 'Nota_Protegida_ZAPIA.txt',
+    };
+  }
+
+  const spans: MatchSpan[] = [];
+
+  const collectMatches = (
+    regex: RegExp,
+    build: (m: RegExpExecArray) => { start: number; end: number; finding: SensitiveFinding } | null
+  ) => {
+    const flags = regex.flags.includes('g') ? regex.flags : `${regex.flags}g`;
+    const re = new RegExp(regex.source, flags);
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(raw)) !== null) {
+      const built = build(m);
+      if (built && built.end > built.start) {
+        spans.push(built);
+      }
+      if (m.index === re.lastIndex) {
+        re.lastIndex += 1;
+      }
+    }
+  };
+
+  // 1. PEM Private Keys
+  collectMatches(
+    /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----[\s\S]*?(?:-----END [^\n-]+-----|$)/,
+    (m) => ({
+      start: m.index,
+      end: m.index + m[0].length,
+      finding: {
+        category: 'private_key',
+        label: 'Chave Privada / Certificado',
+        severity: 'alto',
+        previewMasked: '-----BEGIN PRIVATE KEY----- ••••',
+        replacementTag: '[CHAVE PRIVADA PROTEGIDA]',
+      },
+    })
+  );
+
+  // 2. Provider API Keys, Bot Tokens & JWTs
+  const apiKeyPatterns: Array<{ regex: RegExp; label: string }> = [
+    { regex: /\bAIza[0-9A-Za-z_-]{24,}\b/, label: 'Chave API Google/Gemini' },
+    { regex: /\bsk-(?:proj-|live-|test-)?[0-9A-Za-z_-]{18,}\b/, label: 'Chave Secreta OpenAI/Stripe' },
+    { regex: /\bgsk_[0-9A-Za-z_-]{18,}\b/, label: 'Chave API Groq' },
+    { regex: /\bhf_[0-9A-Za-z_-]{18,}\b/, label: 'Token Hugging Face' },
+    { regex: /\b(?:ghp|gho|ghu|ghs)_[0-9A-Za-z]{20,}|github_pat_[0-9A-Za-z_]{24,}\b/, label: 'Token GitHub' },
+    { regex: /\bAKIA[0-9A-Z]{16}\b/, label: 'Chave AWS Access Key' },
+    { regex: /\bxox[baprs]-[0-9A-Za-z-]{14,}\b/, label: 'Token Slack' },
+    { regex: /\b\d{8,11}:[A-Za-z0-9_-]{28,}\b/, label: 'Token Bot Telegram' },
+    { regex: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}\b/, label: 'Token JWT / Bearer' },
+  ];
+
+  for (const item of apiKeyPatterns) {
+    collectMatches(item.regex, (m) => ({
+      start: m.index,
+      end: m.index + m[0].length,
+      finding: {
+        category: 'api_key',
+        label: item.label,
+        severity: 'alto',
+        previewMasked: maskPreviewString(m[0]),
+        replacementTag: '[CHAVE API PROTEGIDA]',
+      },
+    }));
+  }
+
+  // Generic labeled API key / secret / token assignments
+  collectMatches(
+    /\b(?:api[_-]?key|access[_-]?token|client[_-]?secret|bearer)\s*(?::|=|\bé\b)\s*["']?([A-Za-z0-9_.-]{14,})["']?/i,
+    (m) => {
+      const secretVal = m[1] || m[0];
+      const offset = m[0].lastIndexOf(secretVal);
+      const start = offset >= 0 ? m.index + offset : m.index;
+      return {
+        start,
+        end: start + secretVal.length,
+        finding: {
+          category: 'api_key',
+          label: 'Credencial / Token de API',
+          severity: 'alto',
+          previewMasked: maskPreviewString(secretVal),
+          replacementTag: '[CHAVE API PROTEGIDA]',
+        },
+      };
+    }
+  );
+
+  // 3. Explicit Passwords & PINs (supports Portuguese context like "senha do banco: ...")
+  collectMatches(
+    /\b(?:senha|password|pwd|pin|c[oó]digo\s+secreto)(?:\s+(?:d[aeo]s?\s+[^\s:=]{2,20})){0,2}\s*(?::|=|\bé\b|\beh\b)\s*["']?([^\s"',;]{4,})["']?/i,
+    (m) => {
+      const secretVal = m[1] || '';
+      const lowerVal = secretVal.toLowerCase();
+      if (!secretVal || ['aqui', 'nova', 'forte', 'fraca', 'atual'].includes(lowerVal)) {
+        return null;
+      }
+      const offset = m[0].lastIndexOf(secretVal);
+      const start = offset >= 0 ? m.index + offset : m.index;
+      return {
+        start,
+        end: start + secretVal.length,
+        finding: {
+          category: 'password',
+          label: 'Senha ou PIN de Acesso',
+          severity: 'alto',
+          previewMasked: '••••••••',
+          replacementTag: '[SENHA PROTEGIDA]',
+        },
+      };
+    }
+  );
+
+  // 4. CPF (formatted XXX.XXX.XXX-XX or labeled CPF + 11 digits)
+  collectMatches(/\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/, (m) => ({
+    start: m.index,
+    end: m.index + m[0].length,
+    finding: {
+      category: 'cpf',
+      label: 'CPF',
+      severity: 'alto',
+      previewMasked: `${m[0].slice(0, 3)}.•••.•••-${m[0].slice(-2)}`,
+      replacementTag: '[CPF PROTEGIDO]',
+    },
+  }));
+
+  collectMatches(/\bcpf\s*(?::|=|\bn[úu]mero\b|\bé\b)?\s*(\d{11})\b/i, (m) => {
+    const digits = m[1];
+    const offset = m[0].lastIndexOf(digits);
+    const start = offset >= 0 ? m.index + offset : m.index;
+    return {
+      start,
+      end: start + digits.length,
+      finding: {
+        category: 'cpf',
+        label: 'CPF',
+        severity: 'alto',
+        previewMasked: `${digits.slice(0, 3)}••••••${digits.slice(-2)}`,
+        replacementTag: '[CPF PROTEGIDO]',
+      },
+    };
+  });
+
+  // 5. CNPJ
+  collectMatches(/\b\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}\b/, (m) => ({
+    start: m.index,
+    end: m.index + m[0].length,
+    finding: {
+      category: 'cnpj',
+      label: 'CNPJ',
+      severity: 'medio',
+      previewMasked: `${m[0].slice(0, 2)}.•••.•••/${m[0].slice(-7)}`,
+      replacementTag: '[CNPJ PROTEGIDO]',
+    },
+  }));
+
+  // 6. Credit/Debit Card numbers validated with Luhn
+  collectMatches(/(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)/, (m) => {
+    const digits = m[0].replace(/\D/g, '');
+    if (!passesLuhnCheck(digits)) return null;
+    return {
+      start: m.index,
+      end: m.index + m[0].length,
+      finding: {
+        category: 'credit_card',
+        label: 'Número de Cartão (Financeiro)',
+        severity: 'alto',
+        previewMasked: `•••• •••• •••• ${digits.slice(-4)}`,
+        replacementTag: '[CARTÃO PROTEGIDO]',
+      },
+    };
+  });
+
+  // CVV
+  collectMatches(/\bcvv\s*(?::|=|\bé\b)\s*(\d{3,4})\b/i, (m) => {
+    const code = m[1];
+    const offset = m[0].lastIndexOf(code);
+    const start = offset >= 0 ? m.index + offset : m.index;
+    return {
+      start,
+      end: start + code.length,
+      finding: {
+        category: 'cvv',
+        label: 'Código de Segurança (CVV)',
+        severity: 'alto',
+        previewMasked: '•••',
+        replacementTag: '[CVV PROTEGIDO]',
+      },
+    };
+  });
+
+  // 7. Labeled RG / Bank & Pix credentials
+  collectMatches(/\brg\s*(?::|=|\bé\b)\s*([0-9A-Za-z.-]{6,14})\b/i, (m) => {
+    const val = m[1];
+    const offset = m[0].lastIndexOf(val);
+    const start = offset >= 0 ? m.index + offset : m.index;
+    return {
+      start,
+      end: start + val.length,
+      finding: {
+        category: 'rg',
+        label: 'Documento RG',
+        severity: 'medio',
+        previewMasked: maskPreviewString(val),
+        replacementTag: '[RG PROTEGIDO]',
+      },
+    };
+  });
+
+  collectMatches(
+    /\b(?:ag[êe]ncia|conta\s*(?:corrente|poupan[çc]a)?|chave\s*pix)\s*(?::|=|\bé\b)\s*([^\s,;]{5,})/i,
+    (m) => {
+      const val = m[1];
+      const offset = m[0].lastIndexOf(val);
+      const start = offset >= 0 ? m.index + offset : m.index;
+      return {
+        start,
+        end: start + val.length,
+        finding: {
+          category: 'bank_pix',
+          label: 'Dados Bancários / Chave Pix',
+          severity: 'medio',
+          previewMasked: maskPreviewString(val),
+          replacementTag: '[DADO BANCÁRIO PROTEGIDO]',
+        },
+      };
+    }
+  );
+
+  // 8. Crypto Seed Phrases
+  collectMatches(
+    /\b(?:seed\s*phrase|frase\s*(?:semente|secreta|de\s*recupera[çc][ãa]o)|mnem[ôo]nic[oa]?)\s*(?::|=|\bé\b)?\s*((?:[a-z]{3,12}\s+){11,23}[a-z]{3,12})\b/i,
+    (m) => {
+      const words = m[1];
+      const offset = m[0].lastIndexOf(words);
+      const start = offset >= 0 ? m.index + offset : m.index;
+      return {
+        start,
+        end: start + words.length,
+        finding: {
+          category: 'seed_phrase',
+          label: 'Frase Semente Cripto (Seed Phrase)',
+          severity: 'alto',
+          previewMasked: '12+ palavras secretas',
+          replacementTag: '[FRASE SECRETA PROTEGIDA]',
+        },
+      };
+    }
+  );
+
+  if (spans.length === 0) {
+    return {
+      hasSensitiveData: false,
+      riskLevel: 'nenhum',
+      findings: [],
+      maskedText: raw,
+      suggestedTitle: 'Nota_Protegida_ZAPIA.txt',
+    };
+  }
+
+  // Sort by start index, longest match first on ties, and merge/drop overlaps
+  spans.sort((a, b) => (a.start !== b.start ? a.start - b.start : b.end - a.end));
+  const nonOverlapping: MatchSpan[] = [];
+  let cursorEnd = -1;
+  for (const sp of spans) {
+    if (sp.start >= cursorEnd) {
+      nonOverlapping.push(sp);
+      cursorEnd = sp.end;
+    }
+  }
+
+  let maskedText = '';
+  let lastIdx = 0;
+  for (const sp of nonOverlapping) {
+    maskedText += raw.slice(lastIdx, sp.start) + sp.finding.replacementTag;
+    lastIdx = sp.end;
+  }
+  maskedText += raw.slice(lastIdx);
+
+  const findings = nonOverlapping.map((sp) => sp.finding);
+  const hasHigh = findings.some((f) => f.severity === 'alto');
+  const primaryTag = findings[0]?.category.toUpperCase() || 'SEGREDO';
+  const dateStamp = new Date().toISOString().slice(0, 10);
+
+  return {
+    hasSensitiveData: true,
+    riskLevel: hasHigh ? 'alto' : 'medio',
+    findings,
+    maskedText,
+    suggestedTitle: sanitizeFirestoreId(`Cofre_${primaryTag}_${dateStamp}`).concat('.txt'),
+  };
+}
+
+export interface SelfKnowledgeSummary {
+  totalCheckins: number;
+  averageEnergy: number;
+  dominantMood: string;
+  latestFocusGoal: string;
+  suggestedCoachPrompt: string;
+  summaryText: string;
+}
+
+export function summarizeSelfKnowledgeInsights(
+  checkins: Array<{
+    dateIso: string;
+    mood: string;
+    energy: number;
+    focusGoal: string;
+    reflection: string;
+  }>
+): SelfKnowledgeSummary {
+  if (!checkins || checkins.length === 0) {
+    return {
+      totalCheckins: 0,
+      averageEnergy: 0,
+      dominantMood: 'sem registros',
+      latestFocusGoal: 'Definir prioridade do dia',
+      suggestedCoachPrompt:
+        'Quero começar meu treinamento diário de autoconhecimento hoje. Faça 3 perguntas rápidas para mapear meu foco, energia e próximos passos.',
+      summaryText:
+        'Nenhum check-in registrado ainda. Registre seu humor e foco diário para o ZAPIA calibrar sua rotina e produtividade.',
+    };
+  }
+
+  const totalCheckins = checkins.length;
+  const sumEnergy = checkins.reduce((acc, c) => acc + (Number(c.energy) || 0), 0);
+  const averageEnergy = Number((sumEnergy / totalCheckins).toFixed(1));
+
+  const moodCounts = new Map<string, number>();
+  for (const c of checkins) {
+    const mood = (c.mood || 'focado').toLowerCase();
+    moodCounts.set(mood, (moodCounts.get(mood) || 0) + 1);
+  }
+  let dominantMood = checkins[0].mood || 'focado';
+  let topCount = 0;
+  for (const [m, cnt] of moodCounts.entries()) {
+    if (cnt > topCount) {
+      topCount = cnt;
+      dominantMood = m;
+    }
+  }
+
+  const latest = checkins[0];
+  const latestFocusGoal = latest.focusGoal || 'Manter clareza e constância';
+  const recentSnippet = checkins
+    .slice(0, 3)
+    .map((c) => `${c.dateIso}: humor ${c.mood}, energia ${c.energy}/10, foco "${c.focusGoal}"`)
+    .join('; ');
+
+  return {
+    totalCheckins,
+    averageEnergy,
+    dominantMood,
+    latestFocusGoal,
+    suggestedCoachPrompt: `Analise meu histórico recente de autoconhecimento (${recentSnippet}) e sugira um plano prático de foco, ritmo e bem-estar para hoje.`,
+    summaryText: `${totalCheckins} registro(s) · Energia média ${averageEnergy}/10 · Humor predominante: ${dominantMood} · Foco atual: "${latestFocusGoal}".`,
+  };
+}
 

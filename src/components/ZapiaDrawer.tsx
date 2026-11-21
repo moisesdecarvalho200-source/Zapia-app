@@ -9,12 +9,21 @@ import {
   Settings,
   Search,
   MessageCircle,
+  Smartphone,
+  ShieldCheck,
   X,
 } from 'lucide-react';
 import { LocalThread } from '../utils/offlineDb';
 import { ThreadGlyph, ZapiaProGraphic } from './ZapiaWordmark';
 
-export type WorkspaceViewId = 'assistant' | 'routines' | 'artifacts' | 'connect' | 'radar' | 'settings';
+export type WorkspaceViewId =
+  | 'assistant'
+  | 'routines'
+  | 'artifacts'
+  | 'connect'
+  | 'radar'
+  | 'devices'
+  | 'settings';
 
 interface ZapiaDrawerProps {
   userName: string;
@@ -207,6 +216,28 @@ export const ZapiaDrawer: React.FC<ZapiaDrawerProps> = ({
               {radarBadgeCount}
             </span>
           )}
+        </button>
+      </div>
+
+      {/* Dispositivos & Sync E2EE Quick Row */}
+      <div className="px-4 pb-2 shrink-0">
+        <button
+          type="button"
+          onClick={() => handleAction(() => onSelectView('devices'))}
+          className={`w-full rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2 border transition-colors ${
+            activeView === 'devices'
+              ? 'bg-[var(--zapia-surface-alt)] border-[var(--zapia-accent)]'
+              : 'bg-[var(--zapia-surface)] border-[var(--zapia-border)] hover:bg-[var(--zapia-surface-alt)]'
+          }`}
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Smartphone className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="text-xs font-semibold truncate">Dispositivos E2EE</span>
+          </div>
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-400 shrink-0">
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>Sync & Backup</span>
+          </span>
         </button>
       </div>
 

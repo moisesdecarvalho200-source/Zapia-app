@@ -14,36 +14,56 @@ import {
 import {
   PERSONA_PROFILES,
   PersonaId,
+  TrainedVoiceProfile,
   VOICE_EFFECT_PRESETS,
   VOICE_MODEL_CATALOG,
   VoiceEffectId,
   VoiceGenderMode,
+  VoiceSampleItem,
   speedToPlaybackRate,
+  summarizeSelfKnowledgeInsights,
   toneToPitchRatio,
 } from '../utils/zapiaLogic';
 import { LocalDailyCheckin, LocalPreference, ZapiaSettingsState } from '../utils/offlineDb';
 import { zapiaSpeech } from '../utils/speechPlayer';
+import { VoiceTrainingSection } from './VoiceTrainingSection';
 
 interface PersonaVoicePanelProps {
   settings: ZapiaSettingsState;
   preferences: LocalPreference[];
   dailyCheckins?: LocalDailyCheckin[];
+  voiceSamples?: VoiceSampleItem[];
+  trainedProfiles?: TrainedVoiceProfile[];
   isOnline?: boolean;
   onUpdateSettings: (patch: Partial<ZapiaSettingsState>) => void;
   onAddPreference: (category: LocalPreference['category'], key: string, value: string) => void;
   onDeletePreference: (id: string) => void;
   onSaveDailyCheckin?: (checkin: Omit<LocalDailyCheckin, 'id' | 'dateIso' | 'createdAtIso'>) => Promise<void>;
+  onAskSelfKnowledgeAi?: (prompt: string) => Promise<void> | void;
+  onAddVoiceSample?: (sample: VoiceSampleItem) => Promise<void>;
+  onDeleteVoiceSample?: (id: string) => Promise<void>;
+  onSaveTrainedProfile?: (profile: TrainedVoiceProfile) => Promise<void>;
+  onActivateTrainedProfile?: (id: string | null) => Promise<void>;
+  onDeleteTrainedProfile?: (id: string) => Promise<void>;
 }
 
 export const PersonaVoicePanel: React.FC<PersonaVoicePanelProps> = ({
   settings,
   preferences,
   dailyCheckins = [],
+  voiceSamples = [],
+  trainedProfiles = [],
   isOnline = true,
   onUpdateSettings,
   onAddPreference,
   onDeletePreference,
   onSaveDailyCheckin,
+  onAskSelfKnowledgeAi,
+  onAddVoiceSample,
+  onDeleteVoiceSample,
+  onSaveTrainedProfile,
+  onActivateTrainedProfile,
+  onDeleteTrainedProfile,
 }) => {
   const [newPrefKey, setNewPrefKey] = useState('');
   const [newPrefValue, setNewPrefValue] = useState('');
@@ -111,6 +131,8 @@ export const PersonaVoicePanel: React.FC<PersonaVoicePanelProps> = ({
 
   const pitchDescription =
     voicePitch > 62 ? 'Agudo / Brilhante' : voicePitch < 38 ? 'Grave / Encorpado' : 'Natural Equilibrado';
+
+  const selfKnowledgeSummary = summarizeSelfKnowledgeInsights(dailyCheckins);
 
   return (
     <div className="space-y-6">
@@ -439,6 +461,25 @@ export const PersonaVoicePanel: React.FC<PersonaVoicePanelProps> = ({
         </div>
       </section>
 
+      {/* Treinamento de Voz Personalizada */}
+      {onAddVoiceSample &&
+        onDeleteVoiceSample &&
+        onSaveTrainedProfile &&
+        onActivateTrainedProfile &&
+        onDeleteTrainedProfile && (
+          <VoiceTrainingSection
+            samples={voiceSamples}
+            profiles={trainedProfiles}
+            settings={settings}
+            isOnline={isOnline}
+            onAddSample={onAddVoiceSample}
+            onDeleteSample={onDeleteVoiceSample}
+            onSaveProfile={onSaveTrainedProfile}
+            onActivateProfile={onActivateTrainedProfile}
+            onDeleteProfile={onDeleteTrainedProfile}
+          />
+        )}
+
       {/* Treinamento com Autoconhecimento Diário */}
       {onSaveDailyCheckin && (
         <section className="rounded-2xl border border-[var(--zapia-border)] bg-[var(--zapia-surface)] p-5 space-y-4">
@@ -457,6 +498,30 @@ export const PersonaVoicePanel: React.FC<PersonaVoicePanelProps> = ({
             <span className="text-xs font-mono-tabular text-[var(--zapia-muted)]">
               {dailyCheckins.length} check-in(s)
             </span>
+          </div>
+
+          <div
+            data-testid="self-knowledge-summary"
+            className="p-3.5 rounded-xl border border-[var(--zapia-border)] bg-[var(--zapia-bg)] flex flex-wrap items-center justify-between gap-3"
+          >
+            <div className="min-w-0 flex-1 space-y-0.5">
+              <div className="text-xs font-semibold text-[var(--zapia-text)]">
+                IA de Autoconhecimento · Panorama Atual
+              </div>
+              <p className="text-xs text-[var(--zapia-muted)] leading-relaxed">
+                {selfKnowledgeSummary.summaryText}
+              </p>
+            </div>
+            {onAskSelfKnowledgeAi && (
+              <button
+                type="button"
+                onClick={() => onAskSelfKnowledgeAi(selfKnowledgeSummary.suggestedCoachPrompt)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[var(--zapia-accent)] text-[var(--zapia-accent-fg)] text-xs font-semibold hover:opacity-90 transition-opacity whitespace-nowrap shrink-0"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Analisar Evolução com IA</span>
+              </button>
+            )}
           </div>
 
           <form

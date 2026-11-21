@@ -16,13 +16,23 @@ import {
   X,
   MessageSquarePlus,
   Gamepad2,
+  ShieldAlert,
+  Lock,
+  Cpu,
+  Heart,
+  EyeOff,
 } from 'lucide-react';
 import {
   PERSONA_PROFILES,
   ProactiveRadarCard,
+  SensitiveContentAnalysis,
+  analyzeSensitiveContent,
   getPortugueseGreeting,
+  summarizeSelfKnowledgeInsights,
 } from '../utils/zapiaLogic';
 import {
+  LocalConnector,
+  LocalDailyCheckin,
   LocalMessage,
   LocalPreference,
   LocalThread,
@@ -54,6 +64,12 @@ interface AssistantViewProps {
   onQuickOpenWorkspace: (target: 'vault' | 'gallery' | 'schedule' | 'system' | 'settings' | 'code') => void;
   onNewChat: () => void;
   activeCustomModelName?: string | null;
+  connectors?: LocalConnector[];
+  dailyCheckins?: LocalDailyCheckin[];
+  onSelectAiConnector?: (connectorId: string | null) => Promise<void>;
+  onOpenConnectors?: () => void;
+  onSaveSensitiveToVault?: (title: string, content: string) => Promise<void>;
+  onSaveDailyCheckin?: (checkin: Omit<LocalDailyCheckin, 'id' | 'dateIso' | 'createdAtIso'>) => Promise<void>;
 }
 
 export const AssistantView: React.FC<AssistantViewProps> = ({
@@ -73,6 +89,12 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
   onQuickOpenWorkspace,
   onNewChat,
   activeCustomModelName,
+  connectors = [],
+  dailyCheckins = [],
+  onSelectAiConnector,
+  onOpenConnectors,
+  onSaveSensitiveToVault,
+  onSaveDailyCheckin,
 }) => {
   const [input, setInput] = useState('');
   const [speakingId, setSpeakingId] = useState<string | null>(null);
@@ -82,11 +104,25 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
   const [dismissedCardIds, setDismissedCardIds] = useState<string[]>([]);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
+  const [pendingSensitive, setPendingSensitive] = useState<{
+    originalText: string;
+    analysis: SensitiveContentAnalysis;
+  } | null>(null);
+  const [isSavingVaultSecret, setIsSavingVaultSecret] = useState(false);
+  const [vaultSavedFeedback, setVaultSavedFeedback] = useState<string | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const lastAutoSpokenIdRef = useRef<string | null>(null);
+
+  const aiConnectors = connectors.filter(
+    (c) =>
+      (c.providerKind === 'openai-compatible' || c.providerKind === 'gemini' || c.providerKind === 'huggingface') &&
+      Boolean(c.encryptedSecret)
+  );
+  const activeAiConnector = aiConnectors.find((c) => c.isActiveAiModel) || null;
+  const selfKnowledgeSummary = summarizeSelfKnowledgeInsights(dailyCheckins);
 
   const visibleCards = radarCards.filter((c) => !dismissedCardIds.includes(c.id));
   const cardsToShow = visibleCards.length > 0 ? visibleCards : radarCards;
@@ -124,13 +160,60 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
     }
   }, [messages, settings.autoSpeak, settings, isOnline]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = input.trim();
+  const inspectAndSend = async (rawMessage: string) => {
+    const trimmed = rawMessage.trim();
     if (!trimmed || isSending) return;
+    setVaultSavedFeedback(null);
+
+    const analysis = analyzeSensitiveContent(trimmed);
+    if (analysis.hasSensitiveData) {
+      setPendingSensitive({ originalText: trimmed, analysis });
+      setPlusMenuOpen(false);
+      return;
+    }
+
     setInput('');
     setPlusMenuOpen(false);
     await onSendMessage(trimmed);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await inspectAndSend(input);
+  };
+
+  const handleSaveDetectedToVault = async () => {
+    if (!pendingSensitive || !onSaveSensitiveToVault || isSavingVaultSecret) return;
+    setIsSavingVaultSecret(true);
+    try {
+      await onSaveSensitiveToVault(
+        pendingSensitive.analysis.suggestedTitle,
+        pendingSensitive.originalText
+      );
+      setVaultSavedFeedback(
+        `Conteúdo protegido e salvo no Cofre E2EE como "${pendingSensitive.analysis.suggestedTitle}". Nenhum dado sensível foi enviado à API.`
+      );
+      setPendingSensitive(null);
+      setInput('');
+    } finally {
+      setIsSavingVaultSecret(false);
+    }
+  };
+
+  const handleSendMaskedToAi = async () => {
+    if (!pendingSensitive || isSending) return;
+    const masked = pendingSensitive.analysis.maskedText;
+    setPendingSensitive(null);
+    setInput('');
+    await onSendMessage(masked);
+  };
+
+  const handleSendOriginalAnyway = async () => {
+    if (!pendingSensitive || isSending) return;
+    const raw = pendingSensitive.originalText;
+    setPendingSensitive(null);
+    setInput('');
+    await onSendMessage(raw);
   };
 
   const handleSpeak = async (msg: LocalMessage, index: number) => {
@@ -209,7 +292,7 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
       return;
     }
     if (s.prompt) {
-      await onSendMessage(s.prompt);
+      await inspectAndSend(s.prompt);
     }
   };
 
@@ -217,16 +300,16 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
     <div className="flex-1 flex flex-col min-h-0 h-[calc(100dvh-3.5rem)] justify-between max-w-4xl mx-auto w-full px-3 sm:px-6 pb-4">
       {/* Main Area: Either ZAPIA Home (Screenshot 1) or Active Conversation Thread */}
       {isHomeMode ? (
-        <div className="flex-1 flex flex-col justify-between pt-4 sm:pt-8 pb-4">
+        <div className="flex-1 flex flex-col justify-between pt-3 sm:pt-6 pb-2 min-h-0 overflow-y-auto">
           {/* Editorial Serif Greeting (Screenshot 1 Centerpiece) */}
-          <div className="text-center pt-4 sm:pt-8 pb-6">
+          <div className={`text-center ${pendingSensitive ? 'pt-2 pb-2' : 'pt-4 sm:pt-8 pb-6'}`}>
             <h1 className="font-editorial text-3xl sm:text-4xl font-normal tracking-tight text-[var(--zapia-text)]">
               {greetingText}
             </h1>
           </div>
 
-          {/* Horizontal Peeking Radar Card Carousel */}
-          {currentCard && (
+          {/* Horizontal Peeking Radar Card Carousel (collapsed cleanly when DLP protection dialog is active) */}
+          {currentCard && !pendingSensitive && (
             <div className="my-auto py-2">
               <div className="relative flex items-center justify-center gap-3 sm:gap-5 overflow-hidden px-1">
                 {/* Left Peeking Card */}
@@ -327,7 +410,7 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
           )}
 
           {/* Right-Aligned Contextual Quick-Reply Chips (Screenshot 1) */}
-          {currentCard && (
+          {currentCard && !pendingSensitive && (
             <div className="flex flex-col items-end gap-2.5 pt-4 pb-2">
               {currentCard.suggestions.map((s) => (
                 <button
@@ -353,17 +436,32 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
               </h2>
               <p className="text-xs text-[var(--zapia-muted)] truncate">
                 {PERSONA_PROFILES[settings.persona].label} · Voz {settings.voiceGender} ·{' '}
-                {activeCustomModelName ? `API: ${activeCustomModelName}` : isOnline ? 'Online' : 'Offline Seguro'}
+                {activeCustomModelName ? `API: ${activeCustomModelName}` : isOnline ? 'Gemini ZAPIA' : 'Offline Seguro'}
               </p>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {aiConnectors.length > 0 && onSelectAiConnector && (
+                <select
+                  aria-label="Selecionar Conector de IA ativo"
+                  value={activeAiConnector?.id || ''}
+                  onChange={(e) => onSelectAiConnector(e.target.value || null)}
+                  className="px-3 py-1.5 rounded-full bg-[var(--zapia-surface)] border border-[var(--zapia-border)] text-xs font-medium text-[var(--zapia-text)] max-w-[180px]"
+                >
+                  <option value="">IA: ZAPIA Gemini (Nativo)</option>
+                  {aiConnectors.map((conn) => (
+                    <option key={conn.id} value={conn.id}>
+                      IA: {conn.name}
+                    </option>
+                  ))}
+                </select>
+              )}
               <button
                 type="button"
                 onClick={() => setVoiceModalOpen(true)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--zapia-surface)] border border-[var(--zapia-border)] text-xs font-medium hover:border-[var(--zapia-accent)] transition-colors whitespace-nowrap"
               >
                 <Sliders className="w-3.5 h-3.5 text-[var(--zapia-accent)]" />
-                <span>Voz & Persona</span>
+                <span>Voz & Autoconhecimento</span>
               </button>
               <button
                 type="button"
@@ -452,16 +550,197 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
       )}
 
       {/* Floating Bottom Composer Capsule (Screenshot 1) */}
-      <div className="relative pt-2 shrink-0 pb-safe">
+      <div className="relative pt-2 shrink-0 pb-safe space-y-2.5">
         {voiceError && (
-          <p className="pb-2 text-xs text-amber-500 text-center" role="status">
+          <p className="text-xs text-amber-500 text-center" role="status">
             {voiceError}
           </p>
         )}
 
+        {/* Confirmation feedback when sensitive data was saved safely to E2EE Vault */}
+        {vaultSavedFeedback && (
+          <div
+            role="status"
+            data-testid="dlp-vault-saved-banner"
+            className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--zapia-text)]"
+          >
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <Lock className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span className="leading-snug">{vaultSavedFeedback}</span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setVaultSavedFeedback(null);
+                  onQuickOpenWorkspace('vault');
+                }}
+                className="px-3 py-1.5 rounded-full bg-emerald-600 text-white font-semibold hover:bg-emerald-500 transition-colors"
+              >
+                Abrir Cofre E2EE
+              </button>
+              <button
+                type="button"
+                aria-label="Fechar aviso do cofre"
+                onClick={() => setVaultSavedFeedback(null)}
+                className="p-1 text-[var(--zapia-muted)] hover:text-[var(--zapia-text)]"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Pre-Send Sensitive Content DLP Protection Card */}
+        {pendingSensitive && (
+          <div
+            role="alertdialog"
+            aria-modal="false"
+            aria-label="Proteção de Dados Sensíveis antes do envio à API"
+            data-testid="dlp-intercept-dialog"
+            className="rounded-2xl border border-amber-500/50 bg-[var(--zapia-surface)] p-4 shadow-xl space-y-3 max-h-[62dvh] overflow-y-auto"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-sm font-semibold text-[var(--zapia-text)]">
+                      Dados sensíveis detectados antes de enviar para a API
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-400 text-[10px] font-bold uppercase">
+                      Risco {pendingSensitive.analysis.riskLevel}
+                    </span>
+                  </div>
+                  <p className="text-xs text-[var(--zapia-muted)] leading-relaxed">
+                    Para proteger sua privacidade, a ZAPIA interceptou esta mensagem antes de enviar para{' '}
+                    <strong className="text-[var(--zapia-text)]">
+                      {activeAiConnector ? activeAiConnector.name : 'ZAPIA Gemini API'}
+                    </strong>
+                    . Salve no <strong className="text-[var(--zapia-text)]">Cofre E2EE (AES-256-GCM)</strong> ou envie a versão mascarada.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Cancelar envio e editar mensagem"
+                onClick={() => setPendingSensitive(null)}
+                className="p-1.5 rounded-lg text-[var(--zapia-muted)] hover:text-[var(--zapia-text)] shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-1.5">
+              {pendingSensitive.analysis.findings.map((f, idx) => (
+                <div
+                  key={`${f.category}-${idx}`}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--zapia-bg)] border border-[var(--zapia-border)] text-xs"
+                >
+                  <span className="font-semibold text-[var(--zapia-text)]">{f.label}:</span>
+                  <span className="font-mono-tabular text-[var(--zapia-muted)]">{f.previewMasked}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-[var(--zapia-bg)] border border-[var(--zapia-border)] text-xs space-y-1">
+              <div className="text-[11px] font-semibold text-[var(--zapia-muted)]">
+                Prévia mascarada (sem dados secretos):
+              </div>
+              <p className="text-[var(--zapia-text)] break-words">
+                {pendingSensitive.analysis.maskedText}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              {onSaveSensitiveToVault && (
+                <button
+                  type="button"
+                  disabled={isSavingVaultSecret}
+                  onClick={handleSaveDetectedToVault}
+                  data-testid="dlp-save-vault-btn"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-white text-[#111113] text-xs font-semibold hover:bg-neutral-200 disabled:opacity-50 transition-colors"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>
+                    {isSavingVaultSecret ? 'Criptografando...' : 'Salvar no Cofre E2EE (Recomendado)'}
+                  </span>
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={isSending}
+                onClick={handleSendMaskedToAi}
+                data-testid="dlp-send-masked-btn"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[var(--zapia-surface-alt)] border border-[var(--zapia-border)] text-xs font-medium text-[var(--zapia-text)] hover:border-[var(--zapia-accent)] transition-colors"
+              >
+                <EyeOff className="w-3.5 h-3.5 text-[var(--zapia-accent)]" />
+                <span>Enviar Versão Mascarada para IA</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPendingSensitive(null)}
+                className="px-3 py-2 rounded-full text-xs font-medium text-[var(--zapia-muted)] hover:text-[var(--zapia-text)]"
+              >
+                Editar Mensagem
+              </button>
+              <button
+                type="button"
+                disabled={isSending}
+                onClick={handleSendOriginalAnyway}
+                className="px-2.5 py-2 rounded-full text-[11px] text-amber-400/90 hover:text-amber-300 underline underline-offset-2 ml-auto"
+              >
+                Enviar original mesmo assim
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Active AI Engine & Self-Knowledge Quick Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
+            <button
+              type="button"
+              onClick={() => (onOpenConnectors ? onOpenConnectors() : undefined)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--zapia-surface)] border border-[var(--zapia-border)] text-[11px] text-[var(--zapia-muted)] hover:text-[var(--zapia-text)] hover:border-[var(--zapia-accent)] transition-colors"
+            >
+              <Cpu className="w-3 h-3 text-[var(--zapia-accent)]" />
+              <span className="truncate max-w-[190px]">
+                Motor IA: <strong className="text-[var(--zapia-text)]">{activeAiConnector ? activeAiConnector.name : 'ZAPIA Gemini'}</strong>
+              </span>
+            </button>
+            {aiConnectors.length > 0 && onSelectAiConnector && (
+              <select
+                aria-label="Trocar Conector de IA no chat"
+                value={activeAiConnector?.id || ''}
+                onChange={(e) => onSelectAiConnector(e.target.value || null)}
+                className="px-2.5 py-1 rounded-full bg-[var(--zapia-surface)] border border-[var(--zapia-border)] text-[11px] text-[var(--zapia-text)] max-w-[165px]"
+              >
+                <option value="">ZAPIA Gemini (Nativo)</option>
+                {aiConnectors.map((conn) => (
+                  <option key={conn.id} value={conn.id}>
+                    {conn.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setVoiceModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--zapia-surface)] border border-[var(--zapia-border)] text-[11px] text-[var(--zapia-muted)] hover:text-[var(--zapia-text)] hover:border-[var(--zapia-accent)] transition-colors"
+          >
+            <Heart className="w-3 h-3 text-[var(--zapia-accent)]" />
+            <span>
+              Autoconhecimento IA ({selfKnowledgeSummary.totalCheckins})
+            </span>
+          </button>
+        </div>
+
         {/* Quick '+' Action Popover */}
         {plusMenuOpen && (
-          <div className="absolute bottom-20 left-0 z-30 w-64 rounded-2xl border border-[var(--zapia-border)] bg-[var(--zapia-surface)] p-2 shadow-xl space-y-1">
+          <div className="absolute bottom-24 left-0 z-30 w-64 rounded-2xl border border-[var(--zapia-border)] bg-[var(--zapia-surface)] p-2 shadow-xl space-y-1">
             <button
               type="button"
               onClick={() => {
@@ -493,8 +772,21 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
               className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium hover:bg-[var(--zapia-surface-alt)] text-left"
             >
               <Sliders className="w-4 h-4 text-[var(--zapia-accent)]" />
-              <span>Personalizar Voz & Persona</span>
+              <span>Voz, Persona & Autoconhecimento</span>
             </button>
+            {onOpenConnectors && (
+              <button
+                type="button"
+                onClick={() => {
+                  setPlusMenuOpen(false);
+                  onOpenConnectors();
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium hover:bg-[var(--zapia-surface-alt)] text-left"
+              >
+                <Cpu className="w-4 h-4 text-[var(--zapia-accent)]" />
+                <span>Conectores de IAs & Apps</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -596,10 +888,16 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
             <PersonaVoicePanel
               settings={settings}
               preferences={preferences}
+              dailyCheckins={dailyCheckins}
               isOnline={isOnline}
               onUpdateSettings={onUpdateSettings}
               onAddPreference={onAddPreference}
               onDeletePreference={onDeletePreference}
+              onSaveDailyCheckin={onSaveDailyCheckin}
+              onAskSelfKnowledgeAi={async (prompt) => {
+                setVoiceModalOpen(false);
+                await inspectAndSend(prompt);
+              }}
             />
           </div>
         </div>

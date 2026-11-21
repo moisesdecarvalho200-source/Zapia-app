@@ -2,11 +2,14 @@ import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 import { validateSafeExternalUrl } from './src/utils/zapiaLogic';
 
 dotenv.config();
+if (!process.env.DISABLE_HMR) {
+  process.env.DISABLE_HMR = 'true';
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -291,6 +294,122 @@ app.post('/api/ai/transcribe', async (req, res) => {
   }
 });
 
+interface TrainVoiceRequestBody {
+  profileName?: string;
+  samples?: Array<{ base64: string; mimeType: string; title?: string }>;
+  additionalContext?: string;
+}
+
+app.post('/api/ai/train-voice', async (req, res) => {
+  try {
+    const body = (req.body || {}) as TrainVoiceRequestBody;
+    const samples = (body.samples || []).filter((s) => Boolean(s?.base64)).slice(0, 3);
+    if (samples.length === 0) {
+      res.status(400).json({ error: 'Envie ou grave ao menos 1 amostra de áudio para treinar a voz.' });
+      return;
+    }
+
+    const ai = getGeminiClient();
+    const profileName = (body.profileName || 'Voz Personalizada ZAPIA').trim();
+
+    const parts: Array<
+      { inlineData: { mimeType: string; data: string } } | { text: string }
+    > = samples.map((s) => ({
+      inlineData: {
+        mimeType: s.mimeType || 'audio/webm',
+        data: s.base64,
+      },
+    }));
+
+    parts.push({
+      text: [
+        `Analise cuidadosamente as amostras de voz enviadas para criar um perfil de emulação chamado "${profileName}" para o assistente ZAPIA.`,
+        `Identifique o gênero vocal predominante, escolha a voz base mais próxima dentre as disponíveis (masculinas: Fenrir, Charon, Puck; femininas: Kore, Zephyr),`,
+        `calibre velocidade (0-100, sendo 45-55 natural), altura vocal/pitch (0-100, 50 natural), e calor emocional (0-100).`,
+        `Escreva vocalStylePrompt como instrução detalhada de direção vocal (timbre, ressonância, cadência, dicção, pausa e prosódia em português do Brasil) para guiar a síntese de voz.`,
+        body.additionalContext ? `Observações do usuário: ${body.additionalContext}` : '',
+      ]
+        .filter(Boolean)
+        .join(' '),
+    });
+
+    const callTrainModel = () =>
+      ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: { parts },
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              gender: {
+                type: Type.STRING,
+                description: 'masculina | feminina',
+              },
+              recommendedBaseVoice: {
+                type: Type.STRING,
+                description: 'Fenrir | Charon | Puck | Kore | Zephyr',
+              },
+              recommendedSpeed: { type: Type.INTEGER },
+              recommendedPitch: { type: Type.INTEGER },
+              recommendedWarmth: { type: Type.INTEGER },
+              vocalStylePrompt: {
+                type: Type.STRING,
+                description: 'Direção vocal detalhada para emular timbre, cadência, ritmo e expressividade.',
+              },
+              timbreNotes: {
+                type: Type.STRING,
+                description: 'Resumo curto em português do Brasil descrevendo o timbre analisado.',
+              },
+            },
+            required: [
+              'gender',
+              'recommendedBaseVoice',
+              'recommendedSpeed',
+              'recommendedPitch',
+              'recommendedWarmth',
+              'vocalStylePrompt',
+              'timbreNotes',
+            ],
+          },
+        },
+      });
+
+    let response;
+    try {
+      response = await callTrainModel();
+    } catch (firstErr: unknown) {
+      const msg = firstErr instanceof Error ? firstErr.message : '';
+      if (/503|UNAVAILABLE/i.test(msg)) {
+        await new Promise((r) => setTimeout(r, 900));
+        response = await callTrainModel();
+      } else {
+        throw firstErr;
+      }
+    }
+
+    const raw = (response.text || '{}').trim();
+    const parsed = JSON.parse(raw);
+    res.json(parsed);
+  } catch (err: unknown) {
+    let errMsg = err instanceof Error ? err.message : 'Erro ao treinar perfil de voz personalizado.';
+    try {
+      const parsedErr = JSON.parse(errMsg) as { error?: { code?: number; message?: string } };
+      if (parsedErr.error?.message) {
+        errMsg =
+          parsedErr.error.code === 503
+            ? `Serviço de análise vocal da IA temporariamente sobrecarregado (503). Tente novamente em instantes ou alterne para modo offline.`
+            : parsedErr.error.message;
+      }
+    } catch {
+      // keep original message
+    }
+    console.error('Train voice error:', errMsg);
+    res.status(502).json({ error: errMsg });
+  }
+});
+
 interface ConnectorTestBody {
   providerKind?: string;
   baseUrl?: string;
@@ -403,6 +522,10 @@ app.post('/api/connectors/test', async (req, res) => {
         ? baseClean
         : `${baseClean}/chat/completions`;
       const testModel = modelId || 'llama-3.3-70b-versatile';
+      const isReasoningOrGpt5 = /^(o\d|gpt-5)/i.test(testModel);
+      const tokenLimitPayload = isReasoningOrGpt5
+        ? { max_completion_tokens: 32 }
+        : { max_tokens: 16 };
       const apiRes = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -412,7 +535,7 @@ app.post('/api/connectors/test', async (req, res) => {
         body: JSON.stringify({
           model: testModel,
           messages: [{ role: 'user', content: 'Diga apenas OK' }],
-          max_tokens: 12,
+          ...tokenLimitPayload,
         }),
         signal: AbortSignal.timeout(8000),
       });
@@ -427,7 +550,115 @@ app.post('/api/connectors/test', async (req, res) => {
         res.status(400).json({ ok: false, message: msg });
         return;
       }
-      res.json({ ok: true, message: `API Free (${testModel}) testada e ativa.` });
+      res.json({ ok: true, message: `Modelo (${testModel}) testado e ativo ao vivo.` });
+      return;
+    }
+
+    if (providerKind === 'media-api') {
+      const lowerBase = baseClean.toLowerCase();
+      if (lowerBase.includes('pollinations.ai')) {
+        const testRes = await fetch(
+          'https://image.pollinations.ai/prompt/zapia%20neon%20badge?width=64&height=64&nologo=true',
+          { signal: AbortSignal.timeout(9000) }
+        );
+        if (!testRes.ok) {
+          res.status(400).json({
+            ok: false,
+            message: `Pollinations.ai respondeu HTTP ${testRes.status}.`,
+          });
+          return;
+        }
+        res.json({
+          ok: true,
+          message: 'Pollinations.ai conectada ao vivo (API de imagens IA 100% gratuita sem chave)!',
+        });
+        return;
+      }
+
+      if (lowerBase.includes('api.pexels.com')) {
+        if (!secret) {
+          res.status(400).json({ ok: false, message: 'Informe sua Pexels API Key gratuita para testar.' });
+          return;
+        }
+        const pxRes = await fetch('https://api.pexels.com/v1/curated?per_page=1', {
+          headers: { Authorization: secret },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!pxRes.ok) {
+          res.status(400).json({
+            ok: false,
+            message: `Pexels recusou a chave (HTTP ${pxRes.status}). Verifique em pexels.com/api.`,
+          });
+          return;
+        }
+        res.json({ ok: true, message: 'Pexels API (Fotos & Vídeos HD Grátis) conectada ao vivo!' });
+        return;
+      }
+
+      if (lowerBase.includes('pixabay.com')) {
+        if (!secret) {
+          res.status(400).json({ ok: false, message: 'Informe sua Pixabay API Key gratuita para testar.' });
+          return;
+        }
+        const pbRes = await fetch(
+          `https://pixabay.com/api/?key=${encodeURIComponent(secret)}&q=nature&per_page=3`,
+          { signal: AbortSignal.timeout(8000) }
+        );
+        if (!pbRes.ok) {
+          res.status(400).json({
+            ok: false,
+            message: `Pixabay retornou HTTP ${pbRes.status}. Confira sua chave gratuita.`,
+          });
+          return;
+        }
+        res.json({ ok: true, message: 'Pixabay API (Fotos & Vídeos Grátis) testada e ativa!' });
+        return;
+      }
+
+      if (lowerBase.includes('api.unsplash.com')) {
+        if (!secret) {
+          res.status(400).json({ ok: false, message: 'Informe a Access Key gratuita do Unsplash para testar.' });
+          return;
+        }
+        const usRes = await fetch('https://api.unsplash.com/photos?per_page=1', {
+          headers: { Authorization: `Client-ID ${secret}` },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!usRes.ok) {
+          res.status(400).json({
+            ok: false,
+            message: `Unsplash retornou HTTP ${usRes.status}. Verifique sua Client-ID.`,
+          });
+          return;
+        }
+        res.json({ ok: true, message: 'Unsplash API conectada e pronta para fotos em alta resolução!' });
+        return;
+      }
+
+      // Suno, Luma Dream Machine, Fal.ai or custom audio/photo/video API
+      if (!secret) {
+        res.status(400).json({
+          ok: false,
+          message: 'Informe a chave/token da API de música ou vídeo (ou use Pollinations.ai sem chave).',
+        });
+        return;
+      }
+      const mediaPing = await fetch(baseClean, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${secret}` },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (mediaPing.status === 401 || mediaPing.status === 403) {
+        res.status(400).json({
+          ok: false,
+          message: `Endpoint acessível, porém a chave/token foi recusada (HTTP ${mediaPing.status}).`,
+        });
+        return;
+      }
+      res.json({
+        ok: mediaPing.status < 500,
+        message: `API de Mídia/Áudio (${baseClean}) validada com HTTP ${mediaPing.status}.`,
+      });
       return;
     }
 
@@ -533,6 +764,8 @@ app.post('/api/connectors/chat', async (req, res) => {
     const endpoint = baseClean.endsWith('/chat/completions')
       ? baseClean
       : `${baseClean}/chat/completions`;
+    const activeModel = modelId || 'llama-3.3-70b-versatile';
+    const isReasoningOrGpt5 = /^(o\d|gpt-5)/i.test(activeModel);
     const apiRes = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -540,12 +773,13 @@ app.post('/api/connectors/chat', async (req, res) => {
         Authorization: `Bearer ${secret}`,
       },
       body: JSON.stringify({
-        model: modelId || 'llama-3.3-70b-versatile',
+        model: activeModel,
         messages: [
           { role: 'system', content: systemPrompt },
           ...(body.history || []).slice(-6),
           { role: 'user', content: message },
         ],
+        ...(isReasoningOrGpt5 ? { max_completion_tokens: 800 } : {}),
       }),
       signal: AbortSignal.timeout(15000),
     });
@@ -569,12 +803,236 @@ app.post('/api/connectors/chat', async (req, res) => {
   }
 });
 
+interface MediaSearchBody {
+  provider?: 'pollinations' | 'pexels' | 'pixabay' | 'unsplash';
+  query?: string;
+  mediaType?: 'photo' | 'video';
+  secret?: string;
+}
+
+app.post('/api/connectors/media-search', async (req, res) => {
+  try {
+    const body = (req.body || {}) as MediaSearchBody;
+    const provider = body.provider || 'pollinations';
+    const q = (body.query || '').trim();
+    const mediaType = body.mediaType === 'video' ? 'video' : 'photo';
+    const secret = (body.secret || '').trim();
+
+    if (!q) {
+      res.status(400).json({ error: 'Digite um tema ou prompt para buscar fotos/vídeos.' });
+      return;
+    }
+
+    if (provider === 'pollinations') {
+      const targetUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(
+        `${q}, ultra detailed photography, crisp lighting`
+      )}?width=768&height=512&nologo=true&seed=${Date.now() % 99999}`;
+      const check = validateSafeExternalUrl(targetUrl);
+      if (!check.valid) {
+        res.status(400).json({ error: check.reason });
+        return;
+      }
+      const imgRes = await fetch(targetUrl, { signal: AbortSignal.timeout(15000) });
+      if (!imgRes.ok) {
+        res.status(502).json({ error: `Pollinations.ai retornou HTTP ${imgRes.status}.` });
+        return;
+      }
+      const buf = Buffer.from(await imgRes.arrayBuffer());
+      const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+      const dataUrl = `data:${contentType};base64,${buf.toString('base64')}`;
+      res.json({
+        items: [
+          {
+            id: `pol_${Date.now()}`,
+            title: q,
+            kind: 'photo',
+            previewUrl: dataUrl,
+            fullUrl: dataUrl,
+            mimeType: contentType,
+            author: 'Pollinations.ai (Grátis sem Chave)',
+          },
+        ],
+      });
+      return;
+    }
+
+    if (!secret) {
+      res.status(400).json({ error: `Informe sua chave gratuita da API ${provider} para buscar.` });
+      return;
+    }
+
+    if (provider === 'pexels') {
+      const endpoint =
+        mediaType === 'video'
+          ? `https://api.pexels.com/videos/search?query=${encodeURIComponent(q)}&per_page=4`
+          : `https://api.pexels.com/v1/search?query=${encodeURIComponent(q)}&per_page=4`;
+      const pxRes = await fetch(endpoint, {
+        headers: { Authorization: secret },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!pxRes.ok) {
+        res.status(400).json({ error: `Pexels retornou HTTP ${pxRes.status}.` });
+        return;
+      }
+      if (mediaType === 'video') {
+        const pxData = (await pxRes.json()) as {
+          videos?: Array<{
+            id: number;
+            image: string;
+            user?: { name?: string };
+            video_files?: Array<{ link?: string; file_type?: string }>;
+          }>;
+        };
+        const items = (pxData.videos || []).map((v) => ({
+          id: `px_v_${v.id}`,
+          title: `${q} (Vídeo Pexels #${v.id})`,
+          kind: 'video',
+          previewUrl: v.image,
+          fullUrl: v.video_files?.[0]?.link || v.image,
+          mimeType: v.video_files?.[0]?.file_type || 'video/mp4',
+          author: v.user?.name || 'Pexels Video',
+        }));
+        res.json({ items });
+        return;
+      }
+      const pxPhotos = (await pxRes.json()) as {
+        photos?: Array<{
+          id: number;
+          alt?: string;
+          photographer?: string;
+          src?: { medium?: string; large?: string };
+        }>;
+      };
+      const items = (pxPhotos.photos || []).map((p) => ({
+        id: `px_p_${p.id}`,
+        title: p.alt || `${q} #${p.id}`,
+        kind: 'photo',
+        previewUrl: p.src?.medium || p.src?.large || '',
+        fullUrl: p.src?.large || p.src?.medium || '',
+        mimeType: 'image/jpeg',
+        author: p.photographer || 'Pexels',
+      }));
+      res.json({ items });
+      return;
+    }
+
+    if (provider === 'pixabay') {
+      const endpoint =
+        mediaType === 'video'
+          ? `https://pixabay.com/api/videos/?key=${encodeURIComponent(secret)}&q=${encodeURIComponent(q)}&per_page=4`
+          : `https://pixabay.com/api/?key=${encodeURIComponent(secret)}&q=${encodeURIComponent(q)}&per_page=4`;
+      const pbRes = await fetch(endpoint, { signal: AbortSignal.timeout(10000) });
+      if (!pbRes.ok) {
+        res.status(400).json({ error: `Pixabay retornou HTTP ${pbRes.status}.` });
+        return;
+      }
+      const pbJson = (await pbRes.json()) as {
+        hits?: Array<{
+          id: number;
+          tags?: string;
+          user?: string;
+          webformatURL?: string;
+          largeImageURL?: string;
+          videos?: { medium?: { url?: string; thumbnail?: string } };
+        }>;
+      };
+      const items = (pbJson.hits || []).map((h) => ({
+        id: `pb_${h.id}`,
+        title: h.tags || q,
+        kind: mediaType,
+        previewUrl:
+          mediaType === 'video'
+            ? h.videos?.medium?.thumbnail || ''
+            : h.webformatURL || h.largeImageURL || '',
+        fullUrl:
+          mediaType === 'video'
+            ? h.videos?.medium?.url || ''
+            : h.largeImageURL || h.webformatURL || '',
+        mimeType: mediaType === 'video' ? 'video/mp4' : 'image/jpeg',
+        author: h.user || 'Pixabay',
+      }));
+      res.json({ items });
+      return;
+    }
+
+    // Unsplash
+    const usRes = await fetch(
+      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(q)}&per_page=4`,
+      {
+        headers: { Authorization: `Client-ID ${secret}` },
+        signal: AbortSignal.timeout(10000),
+      }
+    );
+    if (!usRes.ok) {
+      res.status(400).json({ error: `Unsplash retornou HTTP ${usRes.status}.` });
+      return;
+    }
+    const usJson = (await usRes.json()) as {
+      results?: Array<{
+        id: string;
+        alt_description?: string;
+        user?: { name?: string };
+        urls?: { small?: string; regular?: string };
+      }>;
+    };
+    const items = (usJson.results || []).map((u) => ({
+      id: `us_${u.id}`,
+      title: u.alt_description || q,
+      kind: 'photo',
+      previewUrl: u.urls?.small || u.urls?.regular || '',
+      fullUrl: u.urls?.regular || u.urls?.small || '',
+      mimeType: 'image/jpeg',
+      author: u.user?.name || 'Unsplash',
+    }));
+    res.json({ items });
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : 'Erro ao buscar mídia externa.';
+    res.status(502).json({ error: errMsg });
+  }
+});
+
 async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
 
   if (!isProd) {
+    if (process.env.DISABLE_HMR === 'true') {
+      app.get('/@vite/client', (_req, res) => {
+        res.type('application/javascript').send(
+          [
+            'export class ErrorOverlay extends HTMLElement {}',
+            'const sheetsMap = new Map();',
+            'export function updateStyle(id, content) {',
+            '  let style = sheetsMap.get(id);',
+            '  if (!style) {',
+            '    style = document.createElement("style");',
+            '    style.setAttribute("type", "text/css");',
+            '    style.setAttribute("data-vite-dev-id", id);',
+            '    style.textContent = content;',
+            '    document.head.appendChild(style);',
+            '    sheetsMap.set(id, style);',
+            '  } else if (style.textContent !== content) {',
+            '    style.textContent = content;',
+            '  }',
+            '}',
+            'export function removeStyle(id) {',
+            '  const style = sheetsMap.get(id);',
+            '  if (style) { style.remove(); sheetsMap.delete(id); }',
+            '}',
+            'export function createHotContext() {',
+            '  return { data: {}, accept() {}, dispose() {}, prune() {}, decline() {}, invalidate() {}, on() {}, off() {}, send() {} };',
+            '}',
+            'export function injectQuery(url) { return url; }',
+          ].join('\n')
+        );
+      });
+    }
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+        ws: false,
+        watch: null,
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);

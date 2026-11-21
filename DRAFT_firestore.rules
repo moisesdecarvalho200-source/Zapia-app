@@ -135,6 +135,30 @@ service cloud.firestore {
         && data.createdAt is timestamp;
     }
 
+    function isValidDeviceSession(data, deviceId) {
+      return data.keys().hasAll(['id', 'ownerId', 'deviceName', 'platform', 'e2eeFingerprint', 'e2eeStatus', 'syncedVaultCount', 'syncedRemindersCount', 'syncedPreferencesCount', 'lastSyncIso', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'deviceName', 'platform', 'e2eeFingerprint', 'e2eeStatus', 'syncedVaultCount', 'syncedRemindersCount', 'syncedPreferencesCount', 'lastSyncIso', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == deviceId
+        && isValidId(data.ownerId)
+        && data.ownerId == request.auth.uid
+        && data.deviceName is string && data.deviceName.size() >= 1 && data.deviceName.size() <= 120
+        && data.platform is string && data.platform.size() <= 24
+        && data.platform in ['android', 'ios', 'windows', 'macos', 'linux', 'web']
+        && data.e2eeFingerprint is string && data.e2eeFingerprint.size() >= 8 && data.e2eeFingerprint.size() <= 64 && data.e2eeFingerprint.matches('^[A-F0-9:]+$')
+        && data.e2eeStatus is string && data.e2eeStatus.size() <= 32
+        && data.e2eeStatus in ['sincronizado', 'sincronizando', 'pendente_offline', 'chave_divergente']
+        && (data.syncedVaultCount is int || data.syncedVaultCount is float)
+        && data.syncedVaultCount >= 0 && data.syncedVaultCount <= 100000
+        && (data.syncedRemindersCount is int || data.syncedRemindersCount is float)
+        && data.syncedRemindersCount >= 0 && data.syncedRemindersCount <= 100000
+        && (data.syncedPreferencesCount is int || data.syncedPreferencesCount is float)
+        && data.syncedPreferencesCount >= 0 && data.syncedPreferencesCount <= 100000
+        && data.lastSyncIso is string && data.lastSyncIso.size() >= 10 && data.lastSyncIso.size() <= 64
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     match /users/{userId} {
       allow get: if isValidId(userId) && isOwner(userId) && isVerifiedUser();
       allow list: if false;
@@ -247,6 +271,37 @@ service cloud.firestore {
           && hasActiveProfile(userId);
         allow update: if false;
         allow delete: if isValidId(userId) && isValidId(logId) && isOwner(userId) && isVerifiedUser() && hasActiveProfile(userId);
+      }
+
+      match /devices/{deviceId} {
+        allow get: if isValidId(userId) && isValidId(deviceId) && isOwner(userId) && isVerifiedUser() && hasActiveProfile(userId);
+        allow list: if isOwner(userId) && isVerifiedUser() && resource.data.ownerId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(deviceId)
+          && isOwner(userId) && isVerifiedUser()
+          && isValidDeviceSession(incoming(), deviceId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && hasActiveProfile(userId);
+        allow update: if isValidId(userId) && isValidId(deviceId)
+          && isOwner(userId) && isVerifiedUser()
+          && isValidDeviceSession(incoming(), deviceId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'deviceName',
+            'platform',
+            'e2eeFingerprint',
+            'e2eeStatus',
+            'syncedVaultCount',
+            'syncedRemindersCount',
+            'syncedPreferencesCount',
+            'lastSyncIso',
+            'updatedAt'
+          ])
+          && hasActiveProfile(userId);
+        allow delete: if isValidId(userId) && isValidId(deviceId) && isOwner(userId) && isVerifiedUser() && hasActiveProfile(userId);
       }
     }
   }

@@ -10,8 +10,10 @@ import {
 import {
   getFirestore,
   doc,
+  getDoc,
   getDocFromServer,
   setDoc,
+  updateDoc,
   deleteDoc,
   collection,
   query,
@@ -22,7 +24,15 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { PersonaId, ThemeId, VoiceGenderMode, sanitizeFirestoreId } from '../utils/zapiaLogic';
+import {
+  DeviceE2EEStatus,
+  DevicePlatform,
+  DeviceSessionRecord,
+  PersonaId,
+  ThemeId,
+  VoiceGenderMode,
+  sanitizeFirestoreId,
+} from '../utils/zapiaLogic';
 
 export const WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
@@ -367,6 +377,163 @@ export function subscribeUserVault(
       handleFirestoreError(error, OperationType.LIST, path);
     }
   );
+}
+
+export async function upsertDeviceSessionInFirestore(
+  user: User,
+  session: DeviceSessionRecord
+): Promise<void> {
+  if (!user.emailVerified) return;
+  const { db } = getFirebaseServices();
+  const safeId = sanitizeFirestoreId(session.id);
+  const path = `users/${user.uid}/devices/${safeId}`;
+  const docRef = doc(db, 'users', user.uid, 'devices', safeId);
+
+  const mutableFields = {
+    deviceName: (session.deviceName || 'Dispositivo ZAPIA').slice(0, 120),
+    platform: session.platform,
+    e2eeFingerprint: session.e2eeFingerprint.slice(0, 64),
+    e2eeStatus: session.e2eeStatus,
+    syncedVaultCount: Math.max(0, Math.min(100000, Math.round(session.syncedVaultCount))),
+    syncedRemindersCount: Math.max(0, Math.min(100000, Math.round(session.syncedRemindersCount))),
+    syncedPreferencesCount: Math.max(0, Math.min(100000, Math.round(session.syncedPreferencesCount))),
+    lastSyncIso: (session.lastSyncIso || new Date().toISOString()).slice(0, 64),
+    updatedAt: serverTimestamp(),
+  };
+
+  try {
+    const existingSnap = await getDoc(docRef);
+    if (existingSnap.exists()) {
+      await updateDoc(docRef, mutableFields);
+    } else {
+      await setDoc(docRef, {
+        id: safeId,
+        ownerId: user.uid,
+        ...mutableFields,
+        createdAt: serverTimestamp(),
+      });
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+export function subscribeUserDevices(
+  user: User,
+  onData: (devices: DeviceSessionRecord[]) => void
+): () => void {
+  const { db } = getFirebaseServices();
+  const path = `users/${user.uid}/devices`;
+  const q = query(collection(db, 'users', user.uid, 'devices'), where('ownerId', '==', user.uid));
+  return onSnapshot(
+    q,
+    (snap) => {
+      const devices: DeviceSessionRecord[] = snap.docs.map((d) => {
+        const data = d.data();
+        const createdAtIso =
+          data.createdAt instanceof Timestamp
+            ? data.createdAt.toDate().toISOString()
+            : new Date().toISOString();
+        const updatedAtIso =
+          data.updatedAt instanceof Timestamp
+            ? data.updatedAt.toDate().toISOString()
+            : createdAtIso;
+        return {
+          id: String(data.id || d.id),
+          ownerId: String(data.ownerId || user.uid),
+          deviceName: String(data.deviceName || 'Dispositivo ZAPIA'),
+          platform: (data.platform as DevicePlatform) || 'web',
+          e2eeFingerprint: String(data.e2eeFingerprint || '0000:0000:0000:0000'),
+          e2eeStatus: (data.e2eeStatus as DeviceE2EEStatus) || 'sincronizado',
+          syncedVaultCount: Number(data.syncedVaultCount || 0),
+          syncedRemindersCount: Number(data.syncedRemindersCount || 0),
+          syncedPreferencesCount: Number(data.syncedPreferencesCount || 0),
+          lastSyncIso: String(data.lastSyncIso || updatedAtIso),
+          createdAtIso,
+          updatedAtIso,
+        };
+      });
+      onData(devices);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
+    }
+  );
+}
+
+export async function removeDeviceSessionFromFirestore(
+  user: User,
+  deviceId: string
+): Promise<void> {
+  if (!user.emailVerified) return;
+  const { db } = getFirebaseServices();
+  const safeId = sanitizeFirestoreId(deviceId);
+  const path = `users/${user.uid}/devices/${safeId}`;
+  try {
+    await deleteDoc(doc(db, 'users', user.uid, 'devices', safeId));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
+export async function forceAccountCloudSync(
+  user: User,
+  params: {
+    persona: PersonaId;
+    voiceGender: VoiceGenderMode;
+    themeId: ThemeId;
+    vaultItems: Array<{
+      id: string;
+      title: string;
+      mimeType: string;
+      sizeBytes: number;
+      sha256: string;
+      encryptedPayload: string;
+      iv: string;
+      scanStatus: 'limpo' | 'alerta' | 'quarentena';
+      driveFileId?: string;
+    }>;
+    preferences: Array<{
+      id: string;
+      category: 'rotina' | 'voz' | 'estilo' | 'atalho' | 'contato';
+      key: string;
+      value: string;
+      confidence: number;
+    }>;
+    reminders: Array<{
+      id: string;
+      title: string;
+      dueAtIso: string;
+      status: 'pendente' | 'concluido';
+      calendarEventId?: string;
+    }>;
+    deviceSession: DeviceSessionRecord;
+  }
+): Promise<void> {
+  if (!user.emailVerified) return;
+  await ensureUserProfileInFirestore(user, {
+    persona: params.persona,
+    voiceGender: params.voiceGender,
+    themeId: params.themeId,
+  });
+
+  for (const item of params.vaultItems.slice(0, 20)) {
+    if (item.sizeBytes <= 170000) {
+      await syncVaultItemToFirestore(user, item).catch(() => {});
+    }
+  }
+  for (const pref of params.preferences.slice(0, 20)) {
+    await syncPreferenceToFirestore(user, pref).catch(() => {});
+  }
+  for (const rem of params.reminders.slice(0, 20)) {
+    await syncReminderToFirestore(user, rem).catch(() => {});
+  }
+
+  await upsertDeviceSessionInFirestore(user, {
+    ...params.deviceSession,
+    e2eeStatus: 'sincronizado',
+    lastSyncIso: new Date().toISOString(),
+  });
 }
 
 // ============================================================================

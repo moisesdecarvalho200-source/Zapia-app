@@ -3,6 +3,7 @@ import {
   PersonaId,
   ScanVerdict,
   ThemeId,
+  TrainedVoiceProfile,
   VoiceEffectId,
   VoiceGenderMode,
   getThreadColorHex,
@@ -141,6 +142,7 @@ export interface ZapiaSettingsState {
   speed: number;
   voicePitch?: number;
   voiceEffect?: VoiceEffectId;
+  trainedVoiceProfile?: TrainedVoiceProfile | null;
   autoSpeak: boolean;
   themeId: ThemeId;
   autoBackupDrive: boolean;
